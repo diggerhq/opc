@@ -29,14 +29,14 @@ If the connection is down, the message is marked `pending` and sent when the con
 | Key | When | Does |
 | --- | --- | --- |
 | `Esc` | Something is open | Closes the innermost open thing: the completion menu, the `Ctrl+R` search, a chooser, the picker or the details view |
-| `Esc` | Nothing is open | Interrupts the running turn and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
+| `Esc` | Nothing is open | Interrupts the running turn, with all of its subagents, and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
 | `Ctrl+C` | The prompt line has text | Clears it |
 | `Ctrl+C` | A turn is running and the prompt line is empty | Interrupts the turn, as `Esc` does |
 | `Ctrl+C` | The agent is idle and the prompt line is empty | Shows `press Ctrl+C again to detach`. A second `Ctrl+C` detaches. The session keeps running. |
 | `Ctrl+D` | The prompt line is empty | Detaches |
 | `Ctrl+Z` | Any time | Suspends `opc` in your shell, as for any program. `fg` returns. The session is not affected. |
 
-Detaching never stops the agent. To stop it, press `Esc` first.
+Detaching never stops the agent or its subagents. To stop it, press `Esc` first.
 
 ## Editing and history
 
@@ -59,6 +59,17 @@ History is kept per machine, in `~/.opencomputer/opc/history`, across sessions. 
 | `Ctrl+T` | Shows or hides the agent's reasoning from now on. Earlier reasoning is in the details view. |
 | `Ctrl+L` | Clears the screen and redraws the live area |
 | `?` on an empty prompt line | Shows this table |
+
+## In the subagents view
+
+`/subagents` opens it. See [Subagents](/terminal/session-screen#subagents).
+
+| Key | Does |
+| --- | --- |
+| `↑` `↓` | Selects a subagent |
+| `Enter` | Opens its result, or its live details while it runs. `q` or `Esc` returns to the list. |
+| `x` | Stops the selected subagent. `y` confirms. |
+| `Esc` | Closes the view |
 
 ## When an ask is open
 

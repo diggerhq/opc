@@ -26,6 +26,7 @@ From the top:
 - **The transcript** is the conversation. Your messages are marked `you`. Messages from other people carry their name and where they wrote from, such as `Mo · slack`. The agent's text is indented beneath.
 - **Steps** are the agent's tool calls, one line for each run of them. See [Steps](#steps).
 - **Queued messages** wait above the rule, one dim `queued` line each, until their turn starts. `↑` on an empty prompt line takes the last one back for editing.
+- **Background subagents** that are running wait there too, one dim line each, across turns. See [Subagents](#subagents).
 - **The prompt line** is where you type. It is live from the moment `opc` starts, even before the connection is up.
 - **The status line** under it says what the session is doing. See [Status line](/terminal/status-line).
 
@@ -67,7 +68,7 @@ When the agent writes again, the run settles into the transcript as one line. A 
 - `✓` means the run is done. A step that failed and that the agent moved past, such as a search with no match or an edit it retried, is counted as `1 failed` beside the run but does not mark it failed.
 - `✗` means a step was cut off: the turn was interrupted or failed while it ran.
 - Edits show the lines they added and removed.
-- A subagent is a step with its own nested run, shown while it works and folded into its line when it finishes.
+- A foreground subagent is a step with its own nested run, shown while it works and folded into its line when it finishes. See [Subagents](#subagents).
 
 Reasoning is part of the run. While the model thinks, the live area shows `thinking` and a timer. A run that included reasoning says so when it settles, as `thought 6 s`. Reasoning shorter than 1.5 s is not mentioned, unless it is the first thing in a turn.
 
@@ -76,6 +77,37 @@ At the end of a turn, one dim line says how long it took and what changed:
 ```
   ── 1m 12s · 6 steps · 3 files changed, +40 −12
 ```
+
+## Subagents
+
+A subagent is an agent the session's agent starts to do part of the work. A **foreground** subagent is a step: the turn waits for it. While it works, its line shows its type, its name, what it is doing now, its tool calls and the time:
+
+```
+  ◐ Explore · auth flow · reading src/auth/session.ts · 14 tools · 1m 12s
+```
+
+When it finishes it folds into one line. The details view has its tool calls, nested under it, and its result:
+
+```
+  ✓ Explore · auth flow · 41 tools · 3m
+```
+
+A **background** subagent runs apart from its turn, which can end while it works. Each running one is a dim line above the prompt, next to queued messages, until it ends, across turns. Then the transcript says so:
+
+```
+  ✓ background subagent "auth flow" finished · 4m · /subagents to read
+```
+
+`/subagents` opens the subagents view: one row each, with its status, name, type, what it is doing, tool calls, tokens and time, the running ones first, then those that ended this session. `Enter` opens a subagent's result, or its live details while it runs, and `x` stops it. See [Keys](/terminal/keys#in-the-subagents-view).
+
+When a background subagent ends, the agent starts a turn on its own to read its result. It is shown like a turn you sent, marked as started by the agent instead of `you`:
+
+```
+agent ↳ background subagent "auth flow" finished
+      The auth flow keeps the session in a signed cookie…
+```
+
+[Interrupting](/terminal/keys#stopping-and-leaving) a turn stops it and all of its subagents, background ones included. A background subagent of a turn that completed keeps running until it ends or you stop it from `/subagents`. Stopping a subagent anywhere, from `opc`, Slack or the API, ends it everywhere.
 
 ## Details
 
@@ -102,7 +134,7 @@ If someone writes in the Slack thread, or another terminal is attached, their me
 Turns take minutes, so `opc` tells you when it needs you:
 
 - **The terminal's title** shows the session's state and title, such as `◆ flaky test in segment.test.ts`, so you can see it from another tab. `opc` puts the old title back when it exits.
-- **A notification** is sent when an ask opens, or when a turn that ran longer than 10 seconds ends, if the terminal does not have focus. It uses your terminal's desktop notifications where they exist, and the bell otherwise. `OPC_NOTIFY=0` turns them off.
+- **A notification** is sent when an ask opens, when a turn that ran longer than 10 seconds ends, or when a background subagent ends, if the terminal does not have focus. It uses your terminal's desktop notifications where they exist, and the bell otherwise. `OPC_NOTIFY=0` turns them off.
 
 ## Narrow terminals and plain output
 

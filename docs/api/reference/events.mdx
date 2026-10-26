@@ -61,13 +61,15 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 | `message.delivered` | A held message reached the agent | `as`: `steering` |
 | `turn.queued` | A new turn waits behind others | `position`: 1 for next |
 | `turn.steered` | The message joined the running turn, which is the event's `turnId` | `{}` |
-| `turn.started` | The agent began the turn | `model`, `effort`, `mode` |
+| `turn.started` | The agent began the turn | `model`, `effort`, `mode`, `trigger`, `subagentId`: as on the [Turn](/api/reference/objects#turn) |
 | `turn.status_changed` | The turn moved to a status that has no event of its own, such as `cancelling` | `from`, `to` |
 | `turn.completed` | The turn finished | `text`: the agent's last message, `durationMs` |
 | `turn.failed` | The turn stopped with an error | `error`: a [turn failure](/api/reference/errors#turn-failures) |
 | `turn.cancelled` | The turn was interrupted, was queued when an interrupt came, was cancelled while queued, or its ask expired | `reason`: `interrupted`, `withdrawn` or `expired`; `forced`: `true` when the agent process had to be restarted to stop it; `input`: the message, so a client can offer it again |
 
 `message.received` is in the turn it started or joined: for `steered` and `held` messages, the running turn's `turnId`. A held message whose turn ends before it is delivered starts a new turn, with `turn.queued` or `turn.started` under a new `turnId`.
+
+A turn the agent starts because a background subagent ended has no `message.received`. It begins with `turn.queued` or `turn.started`, with `trigger: "subagent"` and the `subagentId`, right after that subagent's `subagent.ended`.
 
 ## Text
 
@@ -150,7 +152,7 @@ What is typed in a terminal and what it prints are not recorded.
 
 For one turn, recorded events come in this order:
 
-1. `message.received`, then `turn.queued` or `turn.started`
+1. `message.received`, then `turn.queued` or `turn.started`. A turn with `trigger: "subagent"` has no `message.received`.
 2. Blocks and tool calls, in the order the agent produced them, with `ask.*`, `turn.steered`, `turn.status_changed` and `usage.recorded` among them
 3. `tool.failed` with `settledBy` for any call still open
 4. Exactly one of `turn.completed`, `turn.failed` or `turn.cancelled`, last

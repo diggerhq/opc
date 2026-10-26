@@ -20,9 +20,8 @@ Stops the running turn and cancels every queued turn. What `Esc` does in `opc`.
 Returns `202 { "session": Session, "seq" }` at once. In it, the running turn is `cancelling` and the queued turns are already `cancelled`. Then:
 
 - Each queued turn gets a `turn.cancelled` event with reason `interrupted`, in order, before the response is sent.
-- The running turn is told to stop. A tool that was running is stopped; files it had already changed stay changed. Open asks close as `interrupted`, and the turn's foreground subagents end as `stopped`. When the agent has stopped, usually within a second, its `turn.cancelled` is recorded, with reason `interrupted` and `forced: false`.
-- If the agent has not stopped after 10 seconds, its process is restarted and the turn is cancelled anyway, with `forced: true`. A restart stops background subagents too.
-- Background [subagents](/api/http/subagents) keep running. [Stop them](/api/http/subagents#stop-a-subagent) one by one.
+- The running turn is told to stop. A tool that was running is stopped; files it had already changed stay changed. Open asks close as `interrupted`. With Claude Code, every subagent of the turn, background ones included, ends as `stopped` with `stoppedBy: null`. When the agent has stopped, usually within a second, its `turn.cancelled` is recorded, with reason `interrupted` and `forced: false`.
+- If the agent has not stopped after 10 seconds, its process is restarted and the turn is cancelled anyway, with `forced: true`.
 
 With nothing running, or with a `turnId` that has ended, it returns `200 { "session": Session, "seq" }` and does nothing. The cancelled turns' inputs are in their `turn.cancelled` events, so a client can offer them again, as `opc` does by putting them back in the prompt.
 

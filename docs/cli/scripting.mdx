@@ -117,6 +117,7 @@ There are no snake_case aliases.
 | `--timeout <duration>` | Gives up after this long, such as `90s` or `20m`, exit code `124`. The turn keeps running. |
 | `--interrupt-on-timeout` | With `--timeout`, interrupts the turn before exiting |
 | `--interrupt-on-exit` | Interrupts the turn whenever `opc` exits before it ends: `--timeout`, `Ctrl+C` or a signal |
+| `--wait-subagents` | Also waits for the background subagents the turn started. See [Background subagents](#background-subagents). |
 
 ## When the agent needs a person
 
@@ -193,6 +194,15 @@ With `--all`, `0` when every one completed, else `5` when any is waiting, else `
 
 `opc wait` follows the session over your computer's connection, so it returns the moment the turn ends. A program without `opc` waits the same way with one long-poll: [get the turn](/api/http/turns#get-a-turn) with `waitMs`, and repeat while it has not ended.
 
+### Background subagents
+
+A turn can complete while [subagents](/terminal/session-screen#subagents) it started in the background still run. The Result lists them in `subagents`, as `running`. To wait for them too, pass `--wait-subagents` to `opc -p`, `opc wait` or `opc send --wait`; the Result then shows them ended. Read one's answer with `opc subagents result`:
+
+```bash
+opc wait tn_4m8q2x7c1v9b --wait-subagents --json | jq -r '.subagents[].id' |
+  while read -r sa; do opc subagents result "$sa" -s cs_7f3a9k2m4q8r1t6v; done
+```
+
 ## Follow a session: `opc watch`
 
 ```bash
@@ -220,7 +230,7 @@ Prints what happened and exits. The default is one line per message, tool call a
 opc interrupt cs_7f3a9k2m4q8r1t6v
 ```
 
-Interrupts the running turn and cancels queued messages, as `Esc` does. Returns when the turn has stopped.
+Interrupts the running turn, with its subagents, and cancels queued messages, as `Esc` does. Returns when the turn has stopped.
 
 ## Retrying safely
 

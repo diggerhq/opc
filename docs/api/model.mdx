@@ -43,7 +43,7 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | --- | --- | --- |
 | | `starting` | The session is created |
 | `starting` | `idle` or `running` | The agent is up. `running` if a message is waiting. |
-| `idle` | `running` | A message arrives |
+| `idle` | `running` | A message arrives, or the agent starts a turn because a background subagent ended |
 | `running` | `waiting` | The agent raises an ask |
 | `waiting` | `running` | Every open ask closed |
 | `waiting` | `idle` | The asks were open for 24 hours and expired, and the turn was cancelled. See [Asks and suspension](#asks-and-suspension). |
@@ -63,7 +63,7 @@ A session never ends. There is no `ended` status and no route to end one: an idl
 
 ## Turns
 
-A **turn** is the agent's work on one message. Its status moves forward only:
+A **turn** is the agent's work on one message, or on the result of a background [subagent](#subagents). Its status moves forward only:
 
 ```
 queued ──▶ running ──▶ completed
@@ -112,13 +112,17 @@ A **subagent** is an agent the session's agent starts to do part of a turn's wor
 
 - A **foreground** subagent runs inside its turn. The turn waits for it, and it ends before the turn does.
 - A **background** subagent runs apart from its turn. The turn can complete while it runs, and its events keep arriving under that turn's `turnId` until it ends. The session's `status` describes turns only: an `idle` session with a non-empty `subagents` has background work going on.
+- When a background subagent ends, Claude Code starts a turn on its own to read its result. That turn has `trigger: "subagent"`, `input: null` and the subagent's `subagentId`, and runs like any other: it queues behind a running turn, and can be interrupted.
 
 | What happens | Foreground subagents | Background subagents |
 | --- | --- | --- |
-| An [interrupt](/api/http/control#interrupt) | Stopped, with the turn | Keep running |
+| Its turn completes | | Keep running |
+| An [interrupt](/api/http/control#interrupt) of its turn | Stopped, with the turn | Stopped, with the turn |
 | A [stop](/api/http/subagents#stop-a-subagent) | Stopped | Stopped |
 | An explicit [suspend](/api/http/control#suspend) | Stopped | Stopped |
 | Two hours without activity | | The session is not suspended while one runs |
+
+A subagent stopped by an interrupt or a suspend ends as `stopped` with `stoppedBy: null`.
 
 A subagent ends once, as `completed`, `failed` or `stopped`. Read them with [Subagents](/api/http/subagents).
 

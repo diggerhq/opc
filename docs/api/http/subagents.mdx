@@ -70,4 +70,6 @@ Stopping is idempotent for the same person: stopping a subagent you already stop
 
 ## Interrupts and suspension
 
-An [interrupt](/api/http/control#interrupt) stops the turn and its foreground subagents. Background subagents keep running; stop them one by one here. An explicit [suspend](/api/http/control#suspend) stops every subagent, each recorded as `subagent.ended` with `status: "stopped"`. A session is not suspended for being idle while a subagent runs.
+A background subagent keeps running after its turn completes; to stop one, use this route. With Claude Code, an [interrupt](/api/http/control#interrupt) stops the turn and all of its subagents, background ones included. An explicit [suspend](/api/http/control#suspend) stops every subagent. Each is recorded as `subagent.ended` with `status: "stopped"` and `stoppedBy: null`. A session is not suspended for being idle while a subagent runs.
+
+When a background subagent ends, Claude Code starts a turn on its own to read the result: a [Turn](/api/reference/objects#turn) with `trigger: "subagent"`, `input: null` and the `subagentId`.

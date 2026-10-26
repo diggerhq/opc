@@ -114,10 +114,10 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
 | `sessionId` | string | The session |
 | `status` | string | `queued`, `running`, `cancelling`, `completed`, `failed` or `cancelled`. `cancelling` is a running turn that has been [interrupted](/api/http/control#interrupt) and has not stopped yet. |
 | `ifBusy` | string | How it was sent: `queue`, `steer` or `interrupt` |
-| `trigger` | string | What started it: `message`, a message someone sent. `subagent` is reserved for a turn the agent starts on its own when a background subagent ends. |
+| `trigger` | string | What started it: `message`, a message someone sent, or `subagent`, a background [subagent](#subagent) that ended. Claude Code starts a turn on its own to read the result. |
 | `subagentId` | string or null | The subagent, when `trigger` is `subagent` |
 | `input` | string or null | The message, exactly as sent. `null` when `trigger` is not `message`. |
-| `author` | [Actor](#actor) | Who sent it |
+| `author` | [Actor](#actor) or null | Who sent it. `null` when `trigger` is `subagent`. |
 | `steering` | array | Messages steered into this turn while it ran: `{ input, author, createdAt }` |
 | `createdAt` | string | When its message was accepted |
 | `startedAt` | string or null | When the agent began it. `null` while `queued`, and for a queued turn that was cancelled. |
@@ -281,7 +281,7 @@ A subagent is an agent the session's agent starts to do part of the work, such a
 
 `activity`, `toolCalls` and `tokens` come from [`subagent.progress`](/api/reference/events#subagents), which is not recorded. Every read returns their latest values.
 
-An [interrupt](/api/http/control#interrupt) stops the turn's foreground subagents. Background subagents keep running until they end or someone stops them. An explicit [suspend](/api/http/control#suspend) stops every subagent.
+A background subagent keeps running after its turn completes. An [interrupt](/api/http/control#interrupt) of its turn stops it, as it stops foreground ones: with Claude Code, an interrupt stops the turn and all of its subagents. An explicit [suspend](/api/http/control#suspend) stops every subagent. Either way it ends as `stopped`, with `stoppedBy: null`. When a background subagent ends, Claude Code starts a turn with `trigger: "subagent"` to read its result.
 
 ## Secret
 

@@ -19,6 +19,7 @@ Everything here runs without a terminal: nothing prompts, opens a browser or wai
 | `opc interrupt` | Stops the running turn and the queue | `{ cancelled: [Turn…] }` |
 | `opc ask ls` | Lists open asks | `{ asks: [Ask…] }` |
 | `opc ask allow`, `deny`, `always`, `answer`, `dismiss` | Answers or dismisses an ask | The [Ask](/api/reference/objects#ask) as it closed |
+| `opc subagents ls`, `stop`, `result` | Lists, stops and reads the session's subagents | `{ subagents: [Subagent…] }`; the [Subagent](/api/reference/objects#subagent); `result` prints the full result as text |
 | `opc rename`, `archive`, `unarchive` | Changes a session | Nothing |
 | `opc push`, `opc pull` | Moves files | `{ sessionId, path, files, bytes, … }`, also with `--dry-run` |
 | `opc diff` | The agent's changes | A git diff, as text |
