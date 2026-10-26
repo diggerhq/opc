@@ -50,13 +50,12 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `409` | `cursor_ahead` | `session` | `after` is greater than the session's `lastSeq`. `session` is the session now. |
 | `409` | `path_exists` | | An upload's name exists and was not uploaded |
 | `409` | `feature_unavailable` | `feature` | The session's `capabilities.features` lacks it |
-| `409` | `computer_not_set_up` | | Finish setting up your computer on the dashboard |
 | `413` | `too_large` | `bytes`, `files` | Over a [limit](/api/reference/limits) |
 | `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. Reserved, not sent yet. See [Versioning](/api/reference/versioning#opc). |
-| `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. |
+| `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. Over the 600 a minute per key, both say one minute. See [Limits](/api/reference/limits#rates). |
 | `500` | `internal` | | Our fault. Retry with the same idempotency key. |
 | `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting, being updated or down, and nothing was recorded. Retry with the same idempotency key. |
-| `503` | `unavailable` | `retryAfterMs` | A temporary failure, or a read with `minSeq` that the server's copy of the log did not reach within 2 seconds. Retry. |
+| `503` | `unavailable` | `retryAfterMs` | A temporary failure, a read with `minSeq` that the server's copy of the log did not reach within 2 seconds, or a computer your organization has not set up yet (`retryAfterMs: 60000`; finish setup on the dashboard). Retry. |
 
 ### WebSocket only
 

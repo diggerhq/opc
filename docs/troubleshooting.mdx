@@ -25,7 +25,7 @@ $ opc doctor
     It was revoked, by `opc logout` or `opencomputer login --force` on this machine, or on the dashboard. Run `opc login`. A project-scoped API key cannot use Computer: create an organization key.
   </Accordion>
   <Accordion title="opc: your organization's computer is not set up">
-    Computer has not been set up for your organization. Finish setup at [app.opencomputer.dev/computer](https://app.opencomputer.dev/computer). `opc` exits with code `3` and error code `computer_not_set_up` until it is done.
+    Computer has not been set up for your organization. Finish setup at [app.opencomputer.dev/computer](https://app.opencomputer.dev/computer). `opc` exits with code `3` and error code `computer_not_set_up` until it is done. The API answers `503 unavailable` with `retryAfterMs: 60000` meanwhile.
   </Accordion>
   <Accordion title="The status line says starting your computer for a long time">
     Your organization's computer was asleep. Starting it takes seconds, longer the first time after a long break. If it takes more than two minutes, `opc doctor` reports the computer's state, and the dashboard shows it under **Computer**.

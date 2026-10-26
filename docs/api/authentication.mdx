@@ -25,7 +25,7 @@ A key belongs to the member who created it and acts as that member. It can do wh
 
 ### Scopes
 
-A key has every scope unless it was created with fewer. Give a program a key with only the scopes it needs.
+A key has every scope unless it was created with fewer. Give a program a key with only the scopes it needs. An OpenComputer key created with scopes of its own gets this API's scopes only when those include `*` or exactly `sandbox:*`; narrower `sandbox:` scopes grant none of them.
 
 | Scope | Allows |
 | --- | --- |

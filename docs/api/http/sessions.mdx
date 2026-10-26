@@ -56,7 +56,7 @@ To give the agent files before its first message, create the session without `in
 | `402` | `insufficient_credits` | Your organization is out of credits |
 | `409` | `id_conflict` | `id` belongs to another session |
 | `409` | `idempotency_conflict` | The key was used with a different body |
-| `409` | `computer_not_set_up` | Your organization has not finished setting up its computer |
+| `503` | `unavailable` | Your organization has not finished setting up its computer. `retryAfterMs` is `60000`. |
 | `503` | `computer_unavailable` | Your computer is down or starting. Nothing was created. Retry after `retryAfterMs` with the same `Idempotency-Key`; `opc` does. |
 
 ## List sessions

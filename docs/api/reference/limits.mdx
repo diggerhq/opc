@@ -33,7 +33,7 @@ Events page by `seq`, with `after`. Every other list pages by `cursor` and `next
 
 | | Limit |
 | --- | --- |
-| HTTP requests per key | 600 a minute, with bursts of 50 |
+| HTTP requests per key | 600 a minute. Requests from the dashboard are not limited. |
 | Tickets per key | 60 a minute |
 | WebSocket requests per connection | 100 a second, with bursts of 100 |
 | WebSocket connections per member | 50, then new ones are closed with `4029` |
@@ -41,7 +41,7 @@ Events page by `seq`, with `after`. Every other list pages by `cursor` and `next
 | Terminals per session, across all connections | 8 |
 | Terminal input | 1 MiB a second per terminal |
 
-Over a rate limit, the request fails with `429 rate_limited` and `retryAfterMs`. Over HTTP, `Retry-After` is set too, in seconds.
+Over a rate limit, the request fails with `429 rate_limited` and `retryAfterMs`. Over the HTTP limit per key, the wait is always a minute: `Retry-After: 60` and `retryAfterMs: 60000`.
 
 ## Connections
 
