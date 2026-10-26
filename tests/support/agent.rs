@@ -249,12 +249,7 @@ pub async fn run_turn(sh: Arc<Shared>, sid: String, tid: String) {
         "secret" => {
             let name = words.get(1).copied().unwrap_or("API_KEY").to_string();
             let Some(ask) = r.ask("secret", json!({"name": name, "purpose": format!("to use {name}"), "file": false})).await else { return };
-            let status = st(&ask, "status");
-            if status == "answered" {
-                r.reply(&format!("secret {name}: {}", st(&ask["answer"], "scope"))).await;
-            } else {
-                r.reply(&format!("secret {name}: {status}")).await;
-            }
+            r.reply(&format!("secret {name}: {}", st(&ask, "status"))).await;
         }
         "subagent" => {
             let bg = words.get(1) == Some(&"bg");

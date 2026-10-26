@@ -5,7 +5,7 @@
 //! positionals). A command that then cannot parse the rest is reported as a
 //! message that should have been quoted.
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -254,9 +254,6 @@ pub enum Command {
     Pull(PullArgs),
     /// Open a shell in a session's workspace
     Shell(ShellArgs),
-    /// Manage secrets the agent can use
-    #[command(subcommand)]
-    Secret(SecretCommand),
     /// Log in
     Login(LoginArgs),
     /// Log out
@@ -297,7 +294,6 @@ impl Command {
             Command::Push(_) => "push",
             Command::Pull(_) => "pull",
             Command::Shell(_) => "shell",
-            Command::Secret(_) => "secret",
             Command::Login(_) => "login",
             Command::Logout => "logout",
             Command::Whoami(_) => "whoami",
@@ -324,7 +320,6 @@ impl Command {
             Command::Subagents(a) => a.json(),
             Command::Push(a) => a.json,
             Command::Pull(a) => a.json,
-            Command::Secret(SecretCommand::Ls(a)) => a.json,
             Command::Whoami(a) | Command::Doctor(a) => a.json,
             Command::Config(ConfigCommand::Telemetry(a)) => a.json,
             _ => false,
@@ -740,64 +735,6 @@ pub struct ShellArgs {
     pub no_tty: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Scope {
-    Session,
-    Me,
-    Organization,
-}
-
-impl Scope {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Scope::Session => "session",
-            Scope::Me => "me",
-            Scope::Organization => "organization",
-        }
-    }
-}
-
-#[derive(Debug, Subcommand)]
-pub enum SecretCommand {
-    /// Set a secret (the value from a hidden prompt or standard input)
-    Set(SecretSetArgs),
-    /// List secrets, never values
-    Ls(SecretLsArgs),
-    /// Remove a secret
-    Rm(SecretRmArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct SecretSetArgs {
-    #[arg(value_name = "NAME")]
-    pub name: String,
-    #[arg(long, value_enum, default_value_t = Scope::Session)]
-    pub scope: Scope,
-    #[command(flatten)]
-    pub session: SessionOpt,
-    /// Read the value from a file and give it to the agent as a file
-    #[arg(long, value_name = "PATH")]
-    pub file: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
-pub struct SecretLsArgs {
-    #[command(flatten)]
-    pub session: SessionOpt,
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct SecretRmArgs {
-    #[arg(value_name = "NAME")]
-    pub name: String,
-    #[arg(long, value_enum, default_value_t = Scope::Session)]
-    pub scope: Scope,
-    #[command(flatten)]
-    pub session: SessionOpt,
-}
-
 #[derive(Debug, Args)]
 pub struct LoginArgs {
     /// Print the link instead of opening a browser
@@ -864,7 +801,7 @@ pub enum CompletionShell {
 /// Every command name, including aliases.
 pub const COMMANDS: &[&str] = &[
     "new", "a", "attach", "ls", "list", "log", "send", "wait", "watch", "interrupt", "ask", "subagents", "rename", "archive", "unarchive",
-    "open", "diff", "push", "pull", "shell", "secret", "login", "logout", "whoami", "doctor", "schema", "help", "completion",
+    "open", "diff", "push", "pull", "shell", "login", "logout", "whoami", "doctor", "schema", "help", "completion",
 ];
 
 /// Root options that take a value, for finding the first word.
@@ -960,10 +897,6 @@ pub fn usage_error(err: &clap::Error) -> Error {
     let text = err.render().to_string();
     let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("invalid usage");
     Error::usage(first.trim_start_matches("error: ").to_string())
-}
-
-pub fn require<T>(v: Option<T>, what: &str) -> Result<T> {
-    v.ok_or_else(|| Error::usage(format!("missing {what}")))
 }
 
 #[cfg(test)]

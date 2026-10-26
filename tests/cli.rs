@@ -568,18 +568,23 @@ fn subagents_ls_and_stop() {
 // ---- secrets ---------------------------------------------------------------
 
 #[test]
-fn secret_from_stdin_never_echoed() {
+fn secret_asks_are_answered_in_slack_and_only_skipped_here() {
     let fake = Fake::start();
+    let o = run(&fake, &["--help"]);
+    assert!(!o.stdout.contains("secret"), "no secret command: {}", o.stdout);
     let sid = fake.seed_session(Seed::new("s"));
-    let o = run_in(&fake, &["secret", "set", "STRIPE_KEY", "-s", &sid], Some("sk_test_value\n"));
+    fake.send(&sid, "secret STRIPE_KEY", "queue").unwrap();
+    let ask = fake.wait_ask(&sid, T).expect("an ask");
+    let id = ask["id"].as_str().unwrap();
+    let o = run(&fake, &["ask", "answer", id, "-s", &sid, "--text", "sk_test_value", "--json"]);
+    assert_eq!(o.code, 2, "{}", o.stderr);
+    let e: Value = serde_json::from_str(&o.stderr).expect("a JSON error");
+    assert_eq!(e["error"]["code"], "answer_with_secret");
+    assert!(o.stderr.contains("answered in Slack") && !o.stderr.contains("opc secret"), "{}", o.stderr);
+    assert!(fake.requests_to("POST /sessions/*/asks/*/answer").is_empty());
+    let o = run(&fake, &["ask", "dismiss", id, "-s", &sid]);
     assert_eq!(o.code, 0, "{}", o.stderr);
-    assert!(!o.stdout.contains("sk_test_value") && !o.stderr.contains("sk_test_value"));
-    let put = fake.requests_to("PUT /sessions/*/secrets/*");
-    assert_eq!(put.len(), 1);
-    assert_eq!(put[0].json()["value"], "sk_test_value");
-    let o = run(&fake, &["secret", "ls", "-s", &sid, "--json"]);
-    assert_eq!(o.code, 0, "{}", o.stderr);
-    assert!(!o.stdout.contains("sk_test_value"));
+    assert!(fake.wait_idle(&sid, T));
 }
 
 // ---- offline ---------------------------------------------------------------

@@ -34,7 +34,6 @@ const WRITES: &[&str] = &[
     "asks.answer",
     "asks.dismiss",
     "subagents.stop",
-    "secrets.put",
 ];
 
 pub fn canonical(v: &Value) -> String {
@@ -462,49 +461,6 @@ async fn run(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
             validate("method:subagents.stop", &r.1);
             Ok(r)
         }
-        "secrets.put" => put_secret(sh, c),
-        "secrets.list" => {
-            let sid = c.q("sessionId");
-            let scope = c.q("scope");
-            let limit = c.qn("limit", 1, 100)?.unwrap_or(20) as usize;
-            let items = sh.read(|w| -> ApiResult<Vec<Value>> {
-                if let Some(s) = &sid {
-                    w.sess(s)?;
-                }
-                let rank = |x: &Secret| match x.scope.as_str() {
-                    "session" => 0,
-                    "me" => 1,
-                    _ => 2,
-                };
-                let applies = |x: &Secret| match &sid {
-                    Some(s) => x.scope != "session" || x.session_id.as_deref() == Some(s),
-                    None => true,
-                };
-                Ok(w.secrets
-                    .iter()
-                    .filter(|x| applies(x) && scope.as_ref().is_none_or(|s| *s == x.scope))
-                    .map(|x| {
-                        let eff = sid.as_ref().map(|_| !w.secrets.iter().any(|y| applies(y) && y.name == x.name && rank(y) < rank(x)));
-                        x.to_json(eff)
-                    })
-                    .collect())
-            })?;
-            let (secrets, next) = page(items, limit, c.q("cursor"))?;
-            Ok((200, json!({"secrets": secrets, "nextCursor": next})))
-        }
-        "secrets.delete" => {
-            let scope = c.q("scope").unwrap_or_default();
-            sh.with(|w| -> ApiResult<()> {
-                let i = w
-                    .secrets
-                    .iter()
-                    .position(|x| x.name == c.sub() && x.scope == scope && (scope != "session" || x.session_id.as_deref() == c.sid.as_deref()))
-                    .ok_or_else(|| ApiErr::new(404, "secret_not_found", format!("no secret {}", c.sub())))?;
-                w.secrets.remove(i);
-                Ok(())
-            })?;
-            Ok((204, Value::Null))
-        }
         other => Err(ApiErr::new(404, "not_found", format!("no operation {other}"))),
     }
 }
@@ -754,7 +710,7 @@ fn answer(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         let a = w.sess(c.sid())?.ask(c.sub()).cloned().ok_or_else(ask_404)?;
         let kind = st(&a, "kind");
         if kind == "secret" {
-            return Err(ApiErr::new(400, "answer_with_secret", "answer a secret request by setting the secret").with("name", a["secret"]["name"].clone()));
+            return Err(ApiErr::new(400, "answer_with_secret", "a secret request is answered in Slack").with("name", a["secret"]["name"].clone()));
         }
         let body = &c.body;
         let mut mode_change = None;
@@ -823,43 +779,3 @@ fn answer(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
     Ok((200, v))
 }
 
-fn put_secret(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
-    c.allow(&["value", "file"])?;
-    let name = c.sub().to_string();
-    let valid = !name.is_empty() && name.len() <= 128 && name.bytes().enumerate().all(|(i, b)| b == b'_' || b.is_ascii_uppercase() || (i > 0 && b.is_ascii_digit()));
-    if !valid {
-        return Err(ApiErr::bad("name", "a secret name is A-Z, 0-9 and _, not starting with a digit"));
-    }
-    if !c.body["value"].is_string() {
-        return Err(ApiErr::bad("value", "value is required"));
-    }
-    let file = match c.b("file") {
-        None => false,
-        Some(Value::Bool(b)) => *b,
-        Some(_) => return Err(ApiErr::bad("file", "file is a boolean")),
-    };
-    let scope = c.q("scope").unwrap_or_default();
-    let v = sh.with(|w| -> ApiResult<Value> {
-        if scope == "session" {
-            w.sess(c.sid())?;
-        }
-        let sid = if scope == "session" { c.sid.clone() } else { None };
-        w.secrets.retain(|x| !(x.name == name && x.scope == scope && x.session_id == sid));
-        let sec = Secret { name: name.clone(), scope: scope.clone(), session_id: sid.clone(), file, set_by: c.actor.clone(), updated_at: now() };
-        let out = sec.to_json(None);
-        w.secrets.push(sec);
-        let targets: Vec<(String, String)> = w
-            .sessions
-            .iter()
-            .filter(|s| sid.as_ref().is_none_or(|x| *x == s.id))
-            .flat_map(|s| s.asks.iter().filter(|a| a["status"] == "open" && a["kind"] == "secret" && a["secret"]["name"] == name.as_str()).map(|a| (s.id.clone(), st(a, "id"))).collect::<Vec<_>>())
-            .collect();
-        let mut answered = vec![];
-        for (s, a) in targets {
-            w.close_ask(&s, &a, "answered", Some(&c.actor), json!({"scope": scope}));
-            answered.push(w.sess(&s)?.ask(&a).cloned().unwrap());
-        }
-        Ok(json!({"secret": out, "answeredAsks": answered}))
-    })?;
-    Ok((200, v))
-}

@@ -139,7 +139,6 @@ pub struct Glyphs {
     pub ellipsis: &'static str,
     pub arrow: &'static str,
     pub cursor_bar: &'static str,
-    pub secret_dot: &'static str,
     pub spinner: &'static [&'static str],
 }
 
@@ -164,7 +163,6 @@ pub static UNICODE: Glyphs = Glyphs {
     ellipsis: "…",
     arrow: "→",
     cursor_bar: "│",
-    secret_dot: "•",
     spinner: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
 };
 
@@ -189,16 +187,10 @@ pub static ASCII: Glyphs = Glyphs {
     ellipsis: "...",
     arrow: "->",
     cursor_bar: "|",
-    secret_dot: "*",
     spinner: &["|", "/", "-", "\\"],
 };
 
 static ASCII_ONLY: OnceLock<bool> = OnceLock::new();
-
-/// Chooses the symbol set once, from the locale and terminal.
-pub fn init_glyphs() {
-    let _ = ASCII_ONLY.set(wants_ascii(|k| std::env::var(k).ok()));
-}
 
 /// ASCII when the terminal is the Linux console, or the locale is set and is
 /// not UTF-8.
@@ -215,8 +207,10 @@ pub fn wants_ascii(env: impl Fn(&str) -> Option<String>) -> bool {
     false
 }
 
+/// The symbol set, chosen once from the locale and terminal (Unicode in unit
+/// tests, whatever the machine's locale).
 pub fn g() -> &'static Glyphs {
-    if *ASCII_ONLY.get().unwrap_or(&false) { &ASCII } else { &UNICODE }
+    if *ASCII_ONLY.get_or_init(|| !cfg!(test) && wants_ascii(|k| std::env::var(k).ok())) { &ASCII } else { &UNICODE }
 }
 
 pub fn spinner(now_ms: i64) -> &'static str {

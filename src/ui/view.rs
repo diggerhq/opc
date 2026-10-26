@@ -386,9 +386,9 @@ mod tests {
 
     #[test]
     fn an_open_ask_takes_the_cursor_when_focused() {
-        let ask: crate::api::types::Ask = serde_json::from_value(json!({"id": "ak_1", "kind": "secret", "status": "open", "secret": {"name": "STRIPE_API_KEY", "purpose": "tests", "file": false}})).unwrap();
-        let mut ui = crate::ui::ask::AskUi::new(ask, true);
-        ui.key(&crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE));
+        let ask: crate::api::types::Ask = serde_json::from_value(json!({"id": "ak_1", "kind": "approval", "status": "open", "approval": {"toolName": "Bash", "title": "terraform plan", "input": {}}})).unwrap();
+        let mut ui = crate::ui::ask::AskUi::new(ask);
+        ui.key(&crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Char('e'), crossterm::event::KeyModifiers::NONE));
         let (lines, cur) = ui.render(60, true);
         let m = Model::new("ses_7f3a", false);
         let ed = Editor::new(vec![]);
@@ -398,8 +398,8 @@ mod tests {
         live.ask_focused = true;
         let (rows, cursor) = compose(&live, 60, 24);
         let s = screen(&rows, 60, rows.len() as u16);
-        assert_eq!(s[0], "  ? Secret STRIPE_API_KEY needed");
-        assert_eq!(s[2], "    value:");
-        assert_eq!(cursor, (2, 11));
+        assert_eq!(s[0], "  ? Bash  terraform plan");
+        assert_eq!(s[3], "    why:");
+        assert_eq!(cursor, (3, 9));
     }
 }

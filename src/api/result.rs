@@ -110,7 +110,9 @@ pub fn describe_failure(result: &Value) -> Option<String> {
 /// `opc: waiting for a person: …` and the commands that answer the ask.
 pub fn waiting_message(ask: &Value, session_id: &str) -> String {
     let ask: crate::api::types::Ask = serde_json::from_value(ask.clone()).unwrap_or_default();
-    let mut out = format!("waiting for a person: {} in session {session_id}\n     answer it with one of:\n", ask.describe());
+    // A secret request is answered in Slack only; here it can be skipped.
+    let how = if ask.kind == "secret" { "it is answered in Slack, or skip it with one of" } else { "answer it with one of" };
+    let mut out = format!("waiting for a person: {} in session {session_id}\n     {how}:\n", ask.describe());
     let id = &ask.id;
     let cmds: Vec<String> = match ask.kind.as_str() {
         "approval" => {
@@ -122,10 +124,6 @@ pub fn waiting_message(ask: &Value, session_id: &str) -> String {
             v
         }
         "question" => vec![format!("opc ask answer {id} --choice \"<label>\""), format!("opc ask dismiss {id}")],
-        "secret" => {
-            let name = ask.secret.as_ref().map(|s| s.name.as_str()).unwrap_or("NAME");
-            vec![format!("opc secret set {name} -s {session_id}")]
-        }
         _ => vec![format!("opc ask dismiss {id}")],
     };
     for c in cmds {
@@ -161,6 +159,10 @@ mod tests {
         let msg = waiting_message(&ask, "cs_7f3a9k2m4q8r1t6v");
         assert!(msg.starts_with("waiting for a person: approval for \"Bash: terraform apply\" in session cs_7f3a9k2m4q8r1t6v"));
         assert!(!msg.contains("always"));
+        let secret = json!({"id": "ak_2c7v1b4m8q9x", "kind": "secret", "status": "open", "secret": {"name": "STRIPE_API_KEY", "file": false}});
+        let msg = waiting_message(&secret, "cs_7f3a9k2m4q8r1t6v");
+        assert!(msg.contains("answered in Slack") && msg.contains("opc ask dismiss ak_2c7v1b4m8q9x"), "{msg}");
+        assert!(!msg.contains("opc secret"), "{msg}");
         let failed = json!({"id": "tn_4m8q2x7c1v9b", "status": "failed", "error": {"code": "model_error", "message": "x"}});
         let r = build(&failed, "cs_7f3a9k2m4q8r1t6v", "u", None, &[]);
         assert_eq!(r["subtype"], "error");

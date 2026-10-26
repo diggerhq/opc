@@ -39,7 +39,7 @@ impl Pty {
         // SAFETY: both are fresh descriptors from openpty.
         let (master, slave) = unsafe { (OwnedFd::from_raw_fd(m), OwnedFd::from_raw_fd(s)) };
         let mut c = Command::new(env!("CARGO_BIN_EXE_opc"));
-        c.args(args).env_remove("OPC_LOG").env("TERM", "xterm-256color");
+        c.args(args).env_remove("OPC_LOG").env_remove("LC_ALL").env_remove("LC_CTYPE").env("LANG", "C.UTF-8").env("TERM", "xterm-256color");
         for (k, v) in fake.env() {
             if !unset.contains(&k.as_str()) {
                 c.env(k, v);

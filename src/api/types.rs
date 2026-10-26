@@ -280,11 +280,6 @@ pub struct Session {
 }
 
 impl Session {
-    /// No turn running or queued.
-    pub fn is_settled(&self) -> bool {
-        self.active_turn_id.is_none() && self.queued.is_empty() && !matches!(self.status.as_str(), "running" | "starting")
-    }
-
     pub fn dashboard_url(&self, fallback: impl FnOnce() -> String) -> String {
         self.urls.dashboard.clone().unwrap_or_else(fallback)
     }

@@ -13,18 +13,10 @@ description: "One static binary for macOS and Linux."
     curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
     ```
 
-    The script detects your platform, downloads the matching release, checks its SHA-256 against the published checksums and installs it to `~/.local/bin/opc`. Set `OPC_INSTALL_DIR` to install somewhere else, and `OPC_VERSION` to install one release, such as `OPC_VERSION=v0.1.0-rc.3`; pre-releases count. Without it, the script installs the latest release, or the newest pre-release while there is no full release yet. It never asks for `sudo` and never edits your shell's startup files: if the install directory is not on your `PATH`, it prints the line to add. It ends with `Run opc to start.`
-  </Tab>
-  <Tab title="Homebrew">
-    ```bash
-    brew install diggerhq/tap/opc
-    ```
+    The script detects your platform, downloads the matching release, checks its SHA-256 against the published checksums and installs it to `~/.local/bin/opc`. Set `OPC_INSTALL_DIR` to install somewhere else, and `OPC_VERSION` to install one release, a tag from [GitHub releases](https://github.com/diggerhq/opc/releases); pre-releases count. Without it, the script installs the latest release, or the newest pre-release while there is no full release yet. It never asks for `sudo` and never edits your shell's startup files: if the install directory is not on your `PATH`, it prints the line to add. It ends with `Run opc to start.`
   </Tab>
   <Tab title="Manual">
     Download the archive for your platform from [GitHub releases](https://github.com/diggerhq/opc/releases), check it against `SHA256SUMS`, and move `opc` onto your `PATH`.
-  </Tab>
-  <Tab title="opencomputer CLI">
-    If you have the `opencomputer` CLI, `opencomputer computer` runs `opc` with the same arguments, and offers to install it the first time.
   </Tab>
 </Tabs>
 
@@ -49,7 +41,7 @@ opc --version
 
 ## Updating
 
-Run the install script again, or `brew upgrade opc`. `opc` does not update itself and does not check for updates in the background. When the server stops supporting your version's protocol, every command fails with exit code 2 and says which version to install. See [Versioning](/api/reference/versioning).
+Run the install script again. `opc` does not update itself and does not check for updates in the background. When the server stops supporting your version's protocol, every command fails with exit code 2 and says which version to install. See [Versioning](/api/reference/versioning).
 
 ## Shell completions
 

@@ -16,7 +16,6 @@ pub mod pull;
 pub mod push;
 pub mod resolve;
 pub mod run;
-pub mod secret;
 pub mod send;
 pub mod shell;
 pub mod subagents;
@@ -272,7 +271,6 @@ pub async fn dispatch(cli: Cli, ctx: &mut Ctx) -> Result<i32> {
         Command::Push(a) => push::run(ctx, a).await,
         Command::Pull(a) => pull::run(ctx, a).await,
         Command::Shell(a) => shell::run(ctx, a).await,
-        Command::Secret(a) => secret::run(ctx, a).await,
         Command::Login(a) => auth::login(ctx, a).await,
         Command::Logout => auth::logout(ctx).await,
         Command::Whoami(a) => auth::whoami(ctx, a).await,

@@ -132,26 +132,6 @@ pub enum Job {
     Resume { sid: String },
 }
 
-pub struct Secret {
-    pub name: String,
-    pub scope: String,
-    pub session_id: Option<String>,
-    pub file: bool,
-    pub set_by: Value,
-    pub updated_at: String,
-}
-
-impl Secret {
-    pub fn to_json(&self, effective: Option<bool>) -> Value {
-        let v = json!({
-            "name": self.name, "scope": self.scope, "sessionId": self.session_id, "file": self.file,
-            "effective": effective, "setBy": self.set_by, "updatedAt": self.updated_at,
-        });
-        validate("Secret", &v);
-        v
-    }
-}
-
 pub struct Sess {
     pub id: String,
     pub title: String,
@@ -282,7 +262,6 @@ pub struct World {
     pub sessions: Vec<Sess>,
     /// Idempotency-Key → (fingerprint, status, response, kind).
     pub idem: HashMap<String, Idem>,
-    pub secrets: Vec<Secret>,
     pub jobs: Vec<Job>,
     pub bus: broadcast::Sender<Out>,
     pub interrupt_spares_background: bool,

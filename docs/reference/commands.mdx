@@ -48,6 +48,7 @@ Starts a new session. With a message, sends it. With `-p`, runs one turn non-int
 | `--push <dir>` | Pushes a directory into the new session before sending. Repeatable. `opc` prints `opc: session <id> <url>` on standard error before the uploads start. |
 | `--idempotency-key <k>` | With `-p`: a repeat re-attaches to the original turn and waits for it |
 | `--output-format <format>` | With `-p`: `text`, `json` or `stream-json` |
+| `--json` | With `-p`: short for `--output-format json` |
 | `--include-partial-messages` | With `stream-json`: also print text deltas |
 | `--on-ask <action>` | With `-p`: what to do when an ask opens. `fail` (default) exits `5`; `dismiss` dismisses it and carries on; `wait` waits for someone to answer elsewhere. |
 | `--timeout <duration>` | With `-p`: give up after this long, exit `124` |
@@ -198,7 +199,7 @@ Interrupts the running turn, with its subagents, and cancels queued ones.
 
 ```
 opc ask ls [<id>] [--json]
-opc ask allow|deny|always <ak_…> [-m <message>] [--json]
+opc ask allow|deny|always <ak_…> [-m <message>] [--mode <mode>] [--json]
 opc ask answer <ak_…> --choice <label>… [--text <text>] [--json]
 opc ask answer <ak_…> - [--json]
 opc ask dismiss <ak_…> [-m <message>] [--json]
@@ -209,7 +210,7 @@ Lists and answers [asks](/terminal/asks) without attaching. Every subcommand acc
 | Subcommand | Does |
 | --- | --- |
 | `ls` | Open asks in a session, or in all your sessions. `--json`: `{ "asks": [Ask…] }`. |
-| `allow`, `deny`, `always` | Answers an approval. `always` also allows the calls its `alwaysAllows` rule describes, for the rest of the session. `-m` is a message the agent reads with the decision. |
+| `allow`, `deny`, `always` | Answers an approval. `always` also allows the calls its `alwaysAllows` rule describes, for the rest of the session. `-m` is a message the agent reads with the decision. For a plan, `--mode` is the permission mode to switch to when allowing it, such as `acceptEdits`. |
 | `answer` | Answers a question. `--choice` takes an option label exactly as given, repeatable for `multiSelect`; `--text` is an answer in your own words. For an ask with several questions, pass the API's [answer body](/api/http/asks#answer-an-ask) on standard input with `-`. |
 | `dismiss` | Closes any ask without an answer. `-m` is a message the agent reads. |
 
@@ -312,7 +313,7 @@ Checks, in order, and stops at the first failure: the configuration file, the cr
 opc schema [result|event|session|turn|ask]
 ```
 
-Prints the JSON Schema of the API's objects, the one published at `https://opencomputer.dev/schemas/computer-api.v1.json`, or of one of them.
+Prints the JSON Schema of the API's objects, the one published at `https://raw.githubusercontent.com/diggerhq/opc/main/schema/computer-api.v1.json`, or of one of them.
 
 ## opc help
 

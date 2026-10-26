@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           name="opc-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          cp "target/${{ matrix.target }}/release/opc" README.md "dist/$name/"
+          cp "target/${{ matrix.target }}/release/opc" README.md LICENSE "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
         with:

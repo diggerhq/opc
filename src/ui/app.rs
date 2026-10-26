@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{Event as TermEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use http::Method;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -89,7 +88,6 @@ enum Bg {
     /// The connection's URL, found with `/me`.
     WireUrl(Result<String>),
     Answered { ask: String, always: Option<String>, key: u64, result: Result<Value> },
-    Secret { ask: String, name: String, scope: String, result: Result<()> },
     Sessions(Vec<Session>),
     SubResult { name: String, result: Result<Value> },
     Archived(Result<Value>),
@@ -157,7 +155,6 @@ struct App<'a> {
     cache_writes: bool,
     pending_truncate: Option<u64>,
     batch: Vec<Event>,
-    owner: Option<String>,
     me: Option<String>,
     reattach: bool,
     attached_ok: bool,
@@ -256,7 +253,6 @@ impl<'a> App<'a> {
             cache_writes: start.cache_writes,
             pending_truncate: None,
             batch: Vec::new(),
-            owner: None,
             me: None,
             reattach: false,
             attached_ok: false,
@@ -418,7 +414,6 @@ impl<'a> App<'a> {
                     self.log_epoch = Some(info.log_epoch);
                     let first = !self.m.attached_once;
                     self.m.attached(&info, now);
-                    self.owner = info.session.owner.as_ref().map(|p| p.id.clone());
                     if first {
                         if let Some(t) = info.earlier_turns.as_ref().filter(|_| self.show_earlier) {
                             self.m.earlier(t);
@@ -769,20 +764,6 @@ impl<'a> App<'a> {
                     self.m.error(&format!("not answered: {}", e.message));
                 }
             },
-            Bg::Secret { ask, name, scope, result } => match result {
-                Ok(()) => {
-                    let whom = match scope.as_str() {
-                        "me" => "for all your sessions",
-                        "organization" => "for everyone in the organization",
-                        _ => "for this session",
-                    };
-                    self.m.print(TLine::new(2, 4).s(format!("{} ", g().ok), Sty::Ok).s(format!("{name} set {whom}"), Sty::Plain));
-                }
-                Err(e) => {
-                    self.answered.remove(&ask);
-                    self.m.error(&format!("{name} not set: {}", e.message));
-                }
-            },
             Bg::Sessions(s) => {
                 crate::cache::save_sessions(self.ctx.http.api_url(), &s);
                 self.sessions = s;
@@ -1064,49 +1045,7 @@ impl<'a> App<'a> {
                 self.m.set_fact(format!("opened {url}"), now);
                 self.ask_focus = false;
             }
-            AskOut::Secret { name, value, file, scope } => {
-                self.ask_focus = false;
-                self.set_secret(ask_id, name, value, file, scope);
-            }
         }
-    }
-
-    fn set_secret(&mut self, ask: String, name: String, value: String, file: bool, scope: String) {
-        let valid = !name.is_empty() && name.len() <= 128 && name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit());
-        if !valid {
-            self.m.error(&format!("{name} is not a valid secret name"));
-            return;
-        }
-        // For a file secret, what was typed is the local file's path.
-        let value = if file {
-            let p = value.trim();
-            let p = p.strip_prefix("~/").and_then(|r| dirs::home_dir().map(|h| h.join(r))).unwrap_or_else(|| PathBuf::from(p));
-            match std::fs::read_to_string(&p) {
-                Ok(v) => v,
-                Err(e) => {
-                    self.m.error(&format!("cannot read {}: {e}", p.display()));
-                    return;
-                }
-            }
-        } else {
-            value
-        };
-        if value.is_empty() {
-            self.m.error("the value is empty");
-            return;
-        }
-        let path = match scope.as_str() {
-            "me" => format!("/me/secrets/{name}"),
-            "organization" => format!("/organization/secrets/{name}"),
-            _ => crate::http::session_path(&self.m.session_id, &format!("/secrets/{name}")),
-        };
-        self.answered.insert(ask.clone());
-        let http = self.ctx.http.clone();
-        self.futs.push(Box::pin(async move {
-            let body = json!({"value": value, "file": file});
-            let result = http.call(Method::PUT, &path, &[], Some(&body), None).await.map(|_| ());
-            Bg::Secret { ask, name, scope, result }
-        }));
     }
 
     fn details(&mut self, only: Option<&str>) {
@@ -1485,11 +1424,7 @@ impl<'a> App<'a> {
             }
             (Some(a), Some(cur)) if cur.id() == a.id => {}
             (Some(a), _) => {
-                let owner = match (&self.owner, &self.me) {
-                    (Some(o), Some(me)) => o == me,
-                    _ => true,
-                };
-                self.ask = Some(AskUi::new(a, owner));
+                self.ask = Some(AskUi::new(a));
                 self.ask_focus = false;
                 self.ask_auto_done = false;
             }

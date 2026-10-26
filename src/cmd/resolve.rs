@@ -30,8 +30,8 @@ pub fn operand(positional: Option<&str>, flag: Option<&str>) -> Result<Option<St
 }
 
 /// The session for a command that defaults to the last one. Commands that
-/// change a workspace (`push`, `pull`, `shell`, `secret`) pass `strict`: they
-/// use the last session only when a person is at the terminal.
+/// change a workspace (`push`, `pull`, `shell`) pass `strict`: they use
+/// the last session only when a person is at the terminal.
 pub async fn session_or_last(ctx: &Ctx, target: Option<&str>, strict: bool) -> Result<Resolved> {
     match target {
         Some(t) => resolve(ctx, t).await,

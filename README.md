@@ -1,41 +1,22 @@
 # opc
 
-`opc` is a terminal client for your organization's [Computer](https://opencomputer.dev/computer), the agent that works for your organization on its own cloud machine. It is one static binary that shows a prompt before the network answers and streams the agent's output as the model writes it. Its sessions are the same sessions as Slack and the dashboard: a session started in a terminal shows up on the dashboard, and a Slack thread can be attached from a terminal, with what each side types showing on the other.
+`opc` is a terminal client for your organization's [Computer](https://app.opencomputer.dev/computer), the agent that works for your organization on its own cloud machine. It is one static binary that shows a prompt before the network answers and streams the agent's output as the model writes it. Its sessions are the same sessions as Slack and the dashboard: a session started in a terminal shows up on the dashboard, and a Slack thread can be attached from a terminal, with what each side types showing on the other.
 
 This repository also holds the documentation for `opc` and for the streaming session API it is built on (HTTP and the `opc.v1` WebSocket protocol), in [`docs/`](docs/).
 
-**Status:** prerelease. The latest build is [`v0.1.0-rc.5`](https://github.com/diggerhq/opc/releases/tag/v0.1.0-rc.5). Commands and output formats may still change before 0.1.0.
+**Status:** prerelease. Commands and output formats may still change before 0.1.0.
 
 ## Install
 
 Builds exist for macOS (Apple silicon, Intel) and Linux (x86-64, arm64, statically linked). On Windows, use the Linux build under WSL 2.
 
-Download a release (here with the [GitHub CLI](https://cli.github.com)), check it and put `opc` on your `PATH`. Pick the archive for your platform:
-
-| Platform | Archive |
-| --- | --- |
-| macOS, Apple silicon | `opc-v0.1.0-rc.5-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `opc-v0.1.0-rc.5-x86_64-apple-darwin.tar.gz` |
-| Linux, x86-64 | `opc-v0.1.0-rc.5-x86_64-unknown-linux-musl.tar.gz` |
-| Linux, arm64 | `opc-v0.1.0-rc.5-aarch64-unknown-linux-musl.tar.gz` |
-
-```bash
-name=opc-v0.1.0-rc.5-aarch64-apple-darwin
-gh release download v0.1.0-rc.5 --repo diggerhq/opc --pattern "$name.tar.gz" --pattern SHA256SUMS
-shasum -a 256 --ignore-missing -c SHA256SUMS     # sha256sum --ignore-missing -c on Linux
-tar -xzf "$name.tar.gz"
-mkdir -p ~/.local/bin && install -m 755 "$name/opc" ~/.local/bin/opc
-opc --version
-# opc 0.1.0 (protocol opc.v1, schema computer-api.v1)
-```
-
-The macOS builds are not signed: if macOS blocks the first run, `xattr -d com.apple.quarantine ~/.local/bin/opc`.
-
-The install script does the same in one line: it picks the archive, checks it against `SHA256SUMS` and installs to `~/.local/bin` (`OPC_INSTALL_DIR` and `OPC_VERSION` change that). Its source is [`ci/install.sh`](ci/install.sh). See [Install](docs/install.mdx).
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
 ```
+
+The script picks the archive for your platform from the latest [release](https://github.com/diggerhq/opc/releases), checks it against `SHA256SUMS` and installs `opc` to `~/.local/bin` (`OPC_INSTALL_DIR` and `OPC_VERSION` change that). Its source is [`ci/install.sh`](ci/install.sh). Run it again to update. See [Install](docs/install.mdx).
+
+The macOS builds are not signed: if macOS blocks the first run, `xattr -d com.apple.quarantine ~/.local/bin/opc`.
 
 ## Quickstart
 
@@ -64,7 +45,6 @@ In a session, `Ctrl+O` shows the full detail of the agent's steps, and `Ctrl+D` 
 | `opc a`, `ls`, `open`, `rename`, `archive`, `unarchive` | Find, attach to and manage sessions |
 | `opc ask`, `subagents` | Answer the agent's questions; list, stop and read subagents |
 | `opc push`, `pull`, `diff`, `shell` | Move files, see the agent's changes, open a shell in the workspace |
-| `opc secret` | Manage secrets the agent can use |
 | `opc login`, `logout`, `whoami`, `doctor` | Credentials and connectivity |
 | `opc schema`, `completion`, `config`, `help` | JSON Schema of the API objects, shell completions, settings, help topics |
 

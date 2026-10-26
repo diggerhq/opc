@@ -89,7 +89,7 @@ pub fn state_dir() -> PathBuf {
     }
 }
 
-/// As the Node CLI's `normalizeAPIURL`: https only (http on localhost),
+/// As the `opencomputer` CLI does: https only (http on localhost),
 /// trailing slashes and a trailing `/api` stripped.
 pub fn normalize_api_url(raw: &str) -> Result<String> {
     let mut s = raw.trim().trim_end_matches('/').to_string();

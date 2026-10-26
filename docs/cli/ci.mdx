@@ -38,7 +38,7 @@ Where there is no person to confirm a login, give `opc` an API key. For the comm
           "the nightly run $GITHUB_RUN_ID failed; find the cause and open a PR with a fix"
     ```
 
-    `OPENCOMPUTER_API_KEY` takes precedence over the configuration file. The idempotency key makes the command safe to run again within the same attempt: a retry re-attaches to the same turn instead of starting a second one. Re-running the workflow is a new attempt, and starts fresh. The metadata finds the session again: `opc ls --metadata run=<id>`. To pin the version of `opc`, set `OPC_VERSION`, such as `OPC_VERSION=v0.1.0-rc.3`, for the install script.
+    `OPENCOMPUTER_API_KEY` takes precedence over the configuration file. The idempotency key makes the command safe to run again within the same attempt: a retry re-attaches to the same turn instead of starting a second one. Re-running the workflow is a new attempt, and starts fresh. The metadata finds the session again: `opc ls --metadata run=<id>`. To pin the version of `opc`, set `OPC_VERSION`, to a release tag, for the install script.
   </Step>
 </Steps>
 

@@ -100,10 +100,6 @@ impl Md {
         std::mem::take(&mut self.out)
     }
 
-    pub fn has_output(&self) -> bool {
-        self.any || !self.out.is_empty()
-    }
-
     /// The part not settled yet.
     pub fn live(&self) -> Vec<TLine> {
         let mut lines = Vec::new();

@@ -48,7 +48,7 @@ ci/schema-check.sh                       # vendored schema == published one (ski
 
 ## Releases
 
-Push a tag `v*` (for example `v0.1.0-rc.6`) on `main`. `release.yml` builds static musl Linux (x86-64, arm64) and macOS (arm64, x86-64) binaries, signs and notarizes the macOS ones only when the Apple secrets are configured, and publishes `opc-<tag>-<target>.tar.gz` (binary plus README.md), `install.sh` and `SHA256SUMS` as a GitHub release; a tag with a `-` is a prerelease. `Cargo.toml` stays at `0.1.0` across release candidates, so `opc --version` prints `0.1.0`.
+Push a tag `v*` (for example `v0.1.0-rc.6`) on `main`. `release.yml` builds static musl Linux (x86-64, arm64) and macOS (arm64, x86-64) binaries, signs and notarizes the macOS ones only when the Apple secrets are configured, and publishes `opc-<tag>-<target>.tar.gz` (binary, README.md and LICENSE), `install.sh` and `SHA256SUMS` as a GitHub release; a tag with a `-` is a prerelease. `Cargo.toml` stays at `0.1.0` across release candidates, so `opc --version` prints `0.1.0`.
 
 ## Server side
 

@@ -2,7 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Seg, Sty, TLine, char_width, g, width};
+use super::{Seg, Sty, TLine, char_width, width};
 
 /// A paste longer than this many lines is shown collapsed.
 const COLLAPSE_LINES: usize = 1000;
@@ -39,8 +39,6 @@ pub struct Editor {
     pastes: Vec<(String, String)>,
     /// `Ctrl+X` was pressed: the next `Ctrl+E` opens the editor.
     ctrl_x: bool,
-    /// Typing is hidden (secrets).
-    pub hidden: bool,
 }
 
 fn is_word(c: char) -> bool {
@@ -262,7 +260,7 @@ impl Editor {
             KeyCode::Enter if ctrl || alt || shift => self.insert("\n"),
             KeyCode::Char('j') if ctrl => self.insert("\n"),
             KeyCode::Enter => {
-                if self.cur > 0 && self.buf.get(self.cur - 1) == Some(&'\\') && !self.hidden {
+                if self.cur > 0 && self.buf.get(self.cur - 1) == Some(&'\\') {
                     self.buf.remove(self.cur - 1);
                     self.cur -= 1;
                     self.insert("\n");
@@ -317,16 +315,16 @@ impl Editor {
                 }
             }
             KeyCode::Up | KeyCode::Char('p') if k.code == KeyCode::Up || ctrl => {
-                if !self.vertical(true) && !self.hidden && !self.history_move(true) {
+                if !self.vertical(true) && !self.history_move(true) {
                     return Edit::Ignored;
                 }
             }
             KeyCode::Down | KeyCode::Char('n') if k.code == KeyCode::Down || ctrl => {
-                if !self.vertical(false) && !self.hidden && !self.history_move(false) {
+                if !self.vertical(false) && !self.history_move(false) {
                     return Edit::Ignored;
                 }
             }
-            KeyCode::Char('r') if ctrl && !self.hidden => self.search = Some(Search::default()),
+            KeyCode::Char('r') if ctrl => self.search = Some(Search::default()),
             KeyCode::Char(c) if !ctrl => {
                 let mut b = [0u8; 4];
                 self.insert(c.encode_utf8(&mut b));
@@ -359,7 +357,7 @@ impl Editor {
         let mut rows: Vec<Vec<char>> = vec![Vec::new()];
         let mut col = pw;
         let mut cursor = (0, pw);
-        let text: Vec<char> = if self.hidden { self.buf.iter().map(|_| g().secret_dot.chars().next().unwrap_or('*')).collect() } else { self.buf.clone() };
+        let text: Vec<char> = self.buf.clone();
         for (i, c) in text.iter().enumerate() {
             if *c == '\n' {
                 if i == self.cur {
@@ -489,8 +487,6 @@ mod tests {
         let (rows, cur) = e.render(40, "");
         assert_eq!(rows[0].plain(), "> hello");
         assert_eq!(cur, (0, 7));
-        e.hidden = true;
-        assert_eq!(e.render(40, "").0[0].plain(), "> •••••");
     }
 
     #[test]

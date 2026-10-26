@@ -111,10 +111,6 @@ pub fn looks_like_turn(s: &str) -> bool {
     s.starts_with("tn_") && s.len() > 3
 }
 
-pub fn looks_like_session(s: &str) -> bool {
-    s.starts_with("cs_") && s.len() > 3 && is_base32(&s[3..])
-}
-
 /// A word that can be a session prefix: four or more base32 characters,
 /// optionally with `cs_`.
 pub fn session_prefix(s: &str) -> Option<&str> {

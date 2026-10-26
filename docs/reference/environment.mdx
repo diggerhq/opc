@@ -10,13 +10,14 @@ description: "Environment variables, the configuration file and what opc keeps o
 | `OPENCOMPUTER_API_KEY` | The credential to use. Takes precedence over the configuration file. |
 | `OPENCOMPUTER_API_URL` | The API's base URL. Default `https://app.opencomputer.dev`. |
 | `OPENCOMPUTER_CONFIG` | Path of the configuration file. Default `~/.opencomputer/config.json`. |
-| `OPC_WIRE_URL` | The WebSocket URL of your computer's connection. Default: the one the API gave last time. |
+| `OPC_WIRE_URL` | The WebSocket URL of your computer's connection. Default `wss://wire.opencomputer.dev/v1`; with another `OPENCOMPUTER_API_URL`, the one that API gives. |
 | `OPC_STATE_DIR` | Where `opc` keeps its own state. Default `~/.opencomputer/opc`. |
 | `OPC_LOG` | `error`, `warn`, `info` or `debug`. Logs go to standard error. Default `warn`. |
 | `NO_COLOR` | Any value turns colors off |
 | `OPC_TELEMETRY` | `0` turns [telemetry](/reference/telemetry) off, `1` on. Wins over `opc config telemetry`. `DO_NOT_TRACK=1` also turns it off. |
 | `OPC_NOTIFY` | `0` turns off [notifications](/terminal/session-screen#when-you-look-away) |
 | `VISUAL`, `EDITOR` | The editor for `Ctrl+X Ctrl+E` |
+| `PAGER`, `LESS` | The pager for `opc diff` and long details. Default `less`, with `LESS=FRX` when `LESS` is unset. |
 | `BROWSER` | The program `opc login` and `opc open` open links with. Several commands separated by `:` are tried in turn; `%s` in one stands for the link. |
 | `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes: API requests and the session's WebSocket connection, both tunnelled with `CONNECT`. `NO_PROXY` lists hosts to reach directly; CIDR ranges in it are not matched. `ALL_PROXY` is used only when it is an `http://` proxy. The [timing targets](/reference/timing#what-to-expect) do not include a proxy. |
 

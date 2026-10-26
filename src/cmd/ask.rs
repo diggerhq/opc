@@ -115,7 +115,7 @@ async fn decide(ctx: &Ctx, a: AskDecideArgs, decision: &str) -> Result<i32> {
     let (sid, ask) = find(ctx, &a.ask, a.session.session.as_deref()).await?;
     if let Some(ask) = &ask {
         if ask.kind != "approval" {
-            return Err(Error::usage(format!("{} is a {} ask: {}", a.ask, ask.kind, hint_for(&ask.kind, &a.ask, &sid))));
+            return Err(Error::usage(format!("{} is a {} ask: {}", a.ask, ask.kind, hint_for(&ask.kind, &a.ask))));
         }
         if decision == "always" && ask.approval.as_ref().is_some_and(|p| p.always_allows.is_none()) {
             return Err(Error::usage(format!("{} has no rule to always allow: use opc ask allow", a.ask)));
@@ -144,10 +144,10 @@ async fn dismiss(ctx: &Ctx, a: AskDecideArgs) -> Result<i32> {
     post_answer(ctx, &sid, &a.ask, "dismiss", body, a.json).await
 }
 
-fn hint_for(kind: &str, ask: &str, sid: &str) -> String {
+fn hint_for(kind: &str, ask: &str) -> String {
     match kind {
         "question" => format!("answer it with opc ask answer {ask} --choice <label>"),
-        "secret" => format!("set the secret with opc secret set <NAME> -s {sid}"),
+        "secret" => format!("it is answered in Slack; skip it with opc ask dismiss {ask}"),
         _ => format!("answer it with opc ask allow|deny {ask}"),
     }
 }
@@ -173,10 +173,10 @@ async fn answer(ctx: &Ctx, a: AskAnswerArgs) -> Result<i32> {
         }
     };
     if ask.kind == "secret" {
-        return Err(Error::new("answer_with_secret", format!("{} asks for a secret: {}", a.ask, hint_for("secret", &a.ask, &sid))));
+        return Err(Error::new("answer_with_secret", format!("{} asks for a secret: {}", a.ask, hint_for("secret", &a.ask))));
     }
     if ask.kind != "question" {
-        return Err(Error::usage(format!("{} is an approval: {}", a.ask, hint_for(&ask.kind, &a.ask, &sid))));
+        return Err(Error::usage(format!("{} is an approval: {}", a.ask, hint_for(&ask.kind, &a.ask))));
     }
     let body: Value = if from_stdin {
         serde_json::from_str(&super::read_stdin()?).map_err(|e| Error::usage(format!("the answer body is not JSON: {e}")))?

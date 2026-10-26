@@ -287,42 +287,36 @@ async fn api_route(sh: &Arc<Shared>, method: &str, rel: &str, query: &str, heade
             Err(e) => return Err(ApiErr::bad("body", format!("the body is not JSON: {e}"))),
         }
     };
-    let (op, sid, sub, scope): (&str, Option<&str>, Option<&str>, Option<&str>) = match (method, segs.as_slice()) {
-        ("GET", ["me"]) => ("me", None, None, None),
-        ("POST", ["tickets"]) => ("tickets.create", None, None, None),
-        ("POST", ["sessions"]) => ("sessions.create", None, None, None),
-        ("GET", ["sessions"]) => ("sessions.list", None, None, None),
-        ("GET", ["sessions", id]) => ("sessions.get", Some(id), None, None),
-        ("PATCH", ["sessions", id]) => ("sessions.update", Some(id), None, None),
-        ("GET", ["sessions", id, "capabilities"]) => ("sessions.capabilities", Some(id), None, None),
-        ("POST", ["sessions", id, "interrupt"]) => ("sessions.interrupt", Some(id), None, None),
-        ("POST", ["sessions", id, "compact"]) => ("sessions.compact", Some(id), None, None),
-        ("POST", ["sessions", id, "suspend"]) => ("sessions.suspend", Some(id), None, None),
-        ("POST", ["sessions", id, "resume"]) => ("sessions.resume", Some(id), None, None),
-        ("POST", ["sessions", id, "turns"]) => ("turns.send", Some(id), None, None),
-        ("GET", ["sessions", id, "turns"]) => ("turns.list", Some(id), None, None),
-        ("GET", ["sessions", id, "turns", t]) => ("turns.get", Some(id), Some(t), None),
-        ("POST", ["sessions", id, "turns", t, "cancel"]) => ("turns.cancel", Some(id), Some(t), None),
-        ("GET", ["sessions", id, "events"]) => ("events.list", Some(id), None, None),
-        ("GET", ["sessions", id, "asks"]) => ("asks.list", Some(id), None, None),
-        ("GET", ["sessions", id, "asks", a]) => ("asks.get", Some(id), Some(a), None),
-        ("POST", ["sessions", id, "asks", a, "answer"]) => ("asks.answer", Some(id), Some(a), None),
-        ("POST", ["sessions", id, "asks", a, "dismiss"]) => ("asks.dismiss", Some(id), Some(a), None),
-        ("GET", ["sessions", id, "subagents"]) => ("subagents.list", Some(id), None, None),
-        ("GET", ["sessions", id, "subagents", x]) => ("subagents.get", Some(id), Some(x), None),
-        ("POST", ["sessions", id, "subagents", x, "stop"]) => ("subagents.stop", Some(id), Some(x), None),
-        ("PUT", ["sessions", id, "secrets", n]) => ("secrets.put", Some(id), Some(n), Some("session")),
-        ("PUT", ["me", "secrets", n]) => ("secrets.put", None, Some(n), Some("me")),
-        ("PUT", ["organization", "secrets", n]) => ("secrets.put", None, Some(n), Some("organization")),
-        ("DELETE", ["sessions", id, "secrets", n]) => ("secrets.delete", Some(id), Some(n), Some("session")),
-        ("DELETE", ["me", "secrets", n]) => ("secrets.delete", None, Some(n), Some("me")),
-        ("DELETE", ["organization", "secrets", n]) => ("secrets.delete", None, Some(n), Some("organization")),
-        ("GET", ["secrets"]) => ("secrets.list", None, None, None),
+    let (op, sid, sub): (&str, Option<&str>, Option<&str>) = match (method, segs.as_slice()) {
+        ("GET", ["me"]) => ("me", None, None),
+        ("POST", ["tickets"]) => ("tickets.create", None, None),
+        ("POST", ["sessions"]) => ("sessions.create", None, None),
+        ("GET", ["sessions"]) => ("sessions.list", None, None),
+        ("GET", ["sessions", id]) => ("sessions.get", Some(id), None),
+        ("PATCH", ["sessions", id]) => ("sessions.update", Some(id), None),
+        ("GET", ["sessions", id, "capabilities"]) => ("sessions.capabilities", Some(id), None),
+        ("POST", ["sessions", id, "interrupt"]) => ("sessions.interrupt", Some(id), None),
+        ("POST", ["sessions", id, "compact"]) => ("sessions.compact", Some(id), None),
+        ("POST", ["sessions", id, "suspend"]) => ("sessions.suspend", Some(id), None),
+        ("POST", ["sessions", id, "resume"]) => ("sessions.resume", Some(id), None),
+        ("POST", ["sessions", id, "turns"]) => ("turns.send", Some(id), None),
+        ("GET", ["sessions", id, "turns"]) => ("turns.list", Some(id), None),
+        ("GET", ["sessions", id, "turns", t]) => ("turns.get", Some(id), Some(t)),
+        ("POST", ["sessions", id, "turns", t, "cancel"]) => ("turns.cancel", Some(id), Some(t)),
+        ("GET", ["sessions", id, "events"]) => ("events.list", Some(id), None),
+        ("GET", ["sessions", id, "asks"]) => ("asks.list", Some(id), None),
+        ("GET", ["sessions", id, "asks", a]) => ("asks.get", Some(id), Some(a)),
+        ("POST", ["sessions", id, "asks", a, "answer"]) => ("asks.answer", Some(id), Some(a)),
+        ("POST", ["sessions", id, "asks", a, "dismiss"]) => ("asks.dismiss", Some(id), Some(a)),
+        ("GET", ["sessions", id, "subagents"]) => ("subagents.list", Some(id), None),
+        ("GET", ["sessions", id, "subagents", x]) => ("subagents.get", Some(id), Some(x)),
+        ("POST", ["sessions", id, "subagents", x, "stop"]) => ("subagents.stop", Some(id), Some(x)),
+        // As on the server: secrets are set in Slack only.
+        (_, ["sessions", _, "secrets", ..] | ["me" | "organization", "secrets", ..] | ["secrets", ..]) => {
+            return Err(ApiErr::new(409, "feature_unavailable", "secrets are set in Slack"));
+        }
         _ => return Err(ApiErr::new(404, "not_found", format!("no route {method} {rel}"))),
     };
-    if let Some(s) = scope {
-        q.insert("scope".into(), s.into());
-    }
     let call = Call { op: op.into(), sid: sid.map(str::to_string), sub: sub.map(str::to_string), query: q, body: parsed, idem, actor, strict_body: true };
     let (status, v) = api::dispatch(sh, call).await?;
     Ok(if status == 204 { Out::Empty(204) } else { Out::Json(status, v) })

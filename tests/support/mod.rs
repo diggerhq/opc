@@ -21,7 +21,7 @@
 //! | `approve [once]` | An approval ask for Bash (`once`: no always option). Replies `approval: <decision>`, or `approval: <status> (<message>)` when it closed another way |
 //! | `plan` | An ExitPlanMode approval, replied the same way |
 //! | `question` | A question ask `q1` "Color" with `red`, `blue`. Replies `answer: <choices>` |
-//! | `secret NAME` | A secret ask. Replies `secret NAME: <scope>` |
+//! | `secret NAME` | A secret ask. Replies `secret NAME: <status>` |
 //! | `subagent fg <ms>` | A foreground subagent with a nested Read call, ending `found 3 things` |
 //! | `subagent bg <ms>` | A background subagent; when it ends after `<ms>`, the agent takes a turn of its own (`trigger: subagent`, `input: null`) |
 //! | `/compact [...]` | (from `POST /compact`) `session.compacting` delta, `session.compacted`, completes with `text: null` |
@@ -366,7 +366,7 @@ impl Fake {
         let wire_url = format!("ws://127.0.0.1:{port}/v1");
         let (bus, _) = broadcast::channel(65536);
         let (ctl, _) = broadcast::channel(64);
-        let world = World { sessions: vec![], idem: Default::default(), secrets: vec![], jobs: vec![], bus: bus.clone(), interrupt_spares_background: false };
+        let world = World { sessions: vec![], idem: Default::default(), jobs: vec![], bus: bus.clone(), interrupt_spares_background: false };
         let sh = Arc::new(Shared {
             world: Mutex::new(world),
             version: watch::channel(0).0,

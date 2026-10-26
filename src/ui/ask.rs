@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
 use super::prompt::{Edit, Editor};
-use super::{Seg, Sty, TLine, clean, first_line, g, truncate};
+use super::{Sty, TLine, clean, first_line, g, truncate};
 use crate::api::types::Ask;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,8 +18,6 @@ pub enum AskOut {
     Dismiss,
     /// Open the dashboard's form.
     Web,
-    /// Set a secret through the secret store, never the session.
-    Secret { name: String, value: String, file: bool, scope: String },
     /// Show the full input.
     Details,
 }
@@ -31,8 +29,6 @@ enum Stage {
     Reason(Editor),
     /// Typing on "Something else…".
     Other(Editor),
-    SecretValue(Editor),
-    SecretScope { value: String, sel: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -45,8 +41,6 @@ pub struct AskUi {
     /// Toggled choices of a multi-select question.
     toggled: Vec<usize>,
     answers: Vec<Value>,
-    /// The session is ours: `all my sessions` is offered for secrets.
-    pub owner: bool,
 }
 
 pub fn is_plan(ask: &Ask) -> bool {
@@ -76,25 +70,19 @@ fn rule_words(rule: &str) -> String {
     }
 }
 
-const SCOPES: [(&str, &str); 3] = [("session", "this session"), ("me", "all my sessions"), ("organization", "everyone (admin)")];
-
 impl AskUi {
-    pub fn new(ask: Ask, owner: bool) -> AskUi {
-        AskUi { ask, stage: Stage::Main, q: 0, sel: 0, toggled: Vec::new(), answers: Vec::new(), owner }
+    pub fn new(ask: Ask) -> AskUi {
+        AskUi { ask, stage: Stage::Main, q: 0, sel: 0, toggled: Vec::new(), answers: Vec::new() }
     }
 
     pub fn id(&self) -> &str {
         &self.ask.id
     }
 
-    fn scopes(&self) -> Vec<(&'static str, &'static str)> {
-        SCOPES.iter().copied().filter(|(k, _)| self.owner || *k != "me").collect()
-    }
-
     /// Typing into a line inside the ask (keys should not be taken as
     /// shortcuts).
     pub fn typing(&self) -> bool {
-        !matches!(self.stage, Stage::Main | Stage::SecretScope { .. })
+        !matches!(self.stage, Stage::Main)
     }
 
     pub fn key(&mut self, k: &KeyEvent) -> AskOut {
@@ -132,32 +120,6 @@ impl AskUi {
                 }
                 return AskOut::None;
             }
-            Stage::SecretValue(ed) => {
-                if let Edit::Submit(t) = ed.key(k) {
-                    if t.is_empty() {
-                        return AskOut::None;
-                    }
-                    self.stage = Stage::SecretScope { value: t, sel: 0 };
-                }
-                return AskOut::None;
-            }
-            Stage::SecretScope { value, sel } => {
-                let n = SCOPES.iter().filter(|(k, _)| self.owner || *k != "me").count();
-                match k.code {
-                    KeyCode::Left | KeyCode::Up => *sel = (*sel + n - 1) % n,
-                    KeyCode::Right | KeyCode::Down | KeyCode::Tab => *sel = (*sel + 1) % n,
-                    KeyCode::Enter => {
-                        let value = std::mem::take(value);
-                        let sel = *sel;
-                        let scope = self.scopes()[sel].0.to_string();
-                        let s = self.ask.secret.clone().unwrap_or_default();
-                        self.stage = Stage::Main;
-                        return AskOut::Secret { name: s.name, value, file: s.file, scope };
-                    }
-                    _ => {}
-                }
-                return AskOut::None;
-            }
             Stage::Main => {}
         }
         match self.ask.kind.as_str() {
@@ -182,14 +144,8 @@ impl AskUi {
                 _ => AskOut::None,
             },
             "question" => self.question_key(k),
+            // Answered in Slack only; here it can only be skipped.
             "secret" => match k.code {
-                KeyCode::Enter => {
-                    let mut ed = Editor::new(vec![]);
-                    ed.hidden = !self.ask.secret.as_ref().is_some_and(|s| s.file);
-                    self.stage = Stage::SecretValue(ed);
-                    AskOut::None
-                }
-                KeyCode::Char('w') => AskOut::Web,
                 KeyCode::Char('x') => AskOut::Dismiss,
                 _ => AskOut::None,
             },
@@ -345,10 +301,7 @@ impl AskUi {
                 if let Some(p) = s.purpose.as_deref().filter(|p| !p.is_empty()) {
                     out.push(TLine::new(4, 5).s(format!("\"{}\"", clean(p)), Sty::Dim));
                 }
-                if matches!(self.stage, Stage::Main) {
-                    let how = if s.file { "[enter] give a file's path" } else { "[enter] type it here (hidden)" };
-                    out.push(keys(&format!("{how}   [w] set it on the dashboard   [x] skip")));
-                }
+                out.push(keys("answered in Slack   [x] skip"));
             }
             other => {
                 out.push(head(TLine::row(2)).s(format!("{} {}", if other.is_empty() { "ask" } else { other }, self.ask.describe()), Sty::Bold));
@@ -357,13 +310,11 @@ impl AskUi {
         }
         let mut cursor = None;
         match &self.stage {
-            Stage::Reason(ed) | Stage::Other(ed) | Stage::SecretValue(ed) => {
+            Stage::Reason(ed) | Stage::Other(ed) => {
                 let label = match &self.stage {
                     Stage::Reason(_) if is_plan(&self.ask) => "what to change: ",
                     Stage::Reason(_) => "why: ",
-                    Stage::Other(_) => "answer: ",
-                    _ if self.ask.secret.as_ref().is_some_and(|s| s.file) => "file: ",
-                    _ => "value: ",
+                    _ => "answer: ",
                 };
                 let (rows, (r, c)) = ed.render(w.saturating_sub(4 + label.len()), "");
                 let row0 = out.len();
@@ -374,18 +325,6 @@ impl AskUi {
                     out.push(l);
                 }
                 cursor = Some((row0 + r, 4 + label.len() + c.saturating_sub(2)));
-            }
-            Stage::SecretScope { sel, .. } => {
-                out.push(TLine::row(4).s(format!("value: {}", g().secret_dot.repeat(16)), Sty::Dim));
-                let mut l = TLine::row(4).s("for: ", Sty::Dim);
-                for (i, (_, label)) in self.scopes().iter().enumerate() {
-                    if i == *sel {
-                        l.segs.push(Seg::new(format!("{} {label}   ", g().select), Sty::Bold));
-                    } else {
-                        l.segs.push(Seg::new(format!("  {label}   "), Sty::Plain));
-                    }
-                }
-                out.push(l);
             }
             Stage::Main => {}
         }
@@ -410,7 +349,7 @@ mod tests {
     #[test]
     fn approvals_allow_deny_and_always() {
         let a = ask(json!({"id": "ak_1", "kind": "approval", "status": "open", "approval": {"toolName": "Bash", "title": "terraform plan -out=staging.tfplan", "input": {}, "alwaysAllows": "Bash(terraform plan *)"}}));
-        let mut ui = AskUi::new(a, true);
+        let mut ui = AskUi::new(a);
         let (lines, _) = ui.render(80, true);
         let text: Vec<String> = lines.iter().map(|l| l.plain()).collect();
         assert_eq!(text[0], "  ? Bash  terraform plan -out=staging.tfplan");
@@ -426,7 +365,7 @@ mod tests {
     #[test]
     fn plans_offer_a_mode() {
         let a = ask(json!({"id": "ak_2", "kind": "approval", "status": "open", "approval": {"toolName": "ExitPlanMode", "title": "plan", "input": {"plan": "1. a\n2. b\n3. c\n4. d"}}}));
-        let mut ui = AskUi::new(a, true);
+        let mut ui = AskUi::new(a);
         assert_eq!(ui.render(100, true).0[0].plain(), "  ? Plan ready · 4 steps");
         assert_eq!(ui.key(&k('A')), AskOut::Answer(json!({"decision": "allow", "mode": "acceptEdits"})));
         assert_eq!(ui.key(&k('y')), AskOut::Answer(json!({"decision": "allow", "mode": "default"})));
@@ -439,7 +378,7 @@ mod tests {
             {"id": "q1", "text": "Which fix?", "multiSelect": false, "options": [{"label": "Wait for the debounce"}, {"label": "Await timers"}]},
             {"id": "q2", "text": "Which files?", "multiSelect": true, "options": [{"label": "a"}, {"label": "b"}, {"label": "c"}]},
             {"id": "q3", "text": "Anything else?", "multiSelect": false, "options": [{"label": "no"}]}]}}));
-        let mut ui = AskUi::new(a, true);
+        let mut ui = AskUi::new(a);
         assert_eq!(ui.key(&k('2')), AskOut::None);
         ui.key(&k(' '));
         ui.key(&key(KeyCode::Down));
@@ -457,22 +396,15 @@ mod tests {
     }
 
     #[test]
-    fn secrets_are_typed_hidden_and_scoped() {
+    fn secrets_are_answered_in_slack_and_only_skipped_here() {
         let a = ask(json!({"id": "ak_4", "kind": "secret", "status": "open", "secret": {"name": "STRIPE_API_KEY", "purpose": "tests", "file": false}}));
-        let mut ui = AskUi::new(a, false);
-        ui.key(&key(KeyCode::Enter));
-        for c in "sk_test".chars() {
-            ui.key(&k(c));
+        let mut ui = AskUi::new(a);
+        let text: Vec<String> = ui.render(80, true).0.iter().map(|l| l.plain()).collect();
+        assert_eq!(text, ["  ? Secret STRIPE_API_KEY needed", "    \"tests\"", "    answered in Slack   [x] skip"]);
+        for c in [key(KeyCode::Enter), k('w'), k('s')] {
+            assert_eq!(ui.key(&c), AskOut::None);
         }
-        let (lines, cur) = ui.render(80, true);
-        assert!(lines.iter().any(|l| l.plain().contains("value: •••••••")));
-        assert!(!lines.iter().any(|l| l.plain().contains("sk_test")));
-        assert!(cur.is_some());
-        ui.key(&key(KeyCode::Enter));
-        // Not the owner: no "all my sessions".
-        let scope = ui.render(80, true).0.last().unwrap().plain();
-        assert!(!scope.contains("all my sessions"), "{scope}");
-        ui.key(&key(KeyCode::Right));
-        assert_eq!(ui.key(&key(KeyCode::Enter)), AskOut::Secret { name: "STRIPE_API_KEY".into(), value: "sk_test".into(), file: false, scope: "organization".into() });
+        assert!(!ui.typing());
+        assert_eq!(ui.key(&k('x')), AskOut::Dismiss);
     }
 }
