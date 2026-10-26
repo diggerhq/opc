@@ -69,7 +69,7 @@ An ask never expires: a session with an open ask is not suspended for being idle
 
 ## Settings
 
-Each session has a **model**, an **effort** level and a **permission mode**. They start from your organization's defaults and can be changed at any time with `/model`, `/effort` and `/mode`. On the command line they are `--model`, `--effort` and `--mode` (or `--permission-mode`, as in `claude`). A new model or effort applies from the next turn. A new permission mode applies at once, to the running turn too.
+Each session has a **model**, an **effort** level, a **speed** and a **permission mode**. They start from your organization's defaults and can be changed at any time with `/model`, `/effort`, `/speed` and `/mode`. On the command line they are `--model`, `--effort`, `--speed` and `--mode` (or `--permission-mode`, as in `claude`). Speed is `fast` (the default) or `standard`. A new model, effort or speed applies from the next turn. A new permission mode applies at once, to the running turn too.
 
 | Permission mode | The agent… | Can still ask |
 | --- | --- | --- |

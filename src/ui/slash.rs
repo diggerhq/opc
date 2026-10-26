@@ -14,6 +14,7 @@ pub enum Cmd {
     Help,
     Model(Option<String>),
     Effort(Option<String>),
+    Speed(Option<String>),
     Mode(Option<String>),
     Title(String),
     Queue(String),
@@ -42,6 +43,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/help", "lists these commands"),
     ("/model", "shows or sets the model"),
     ("/effort", "shows or sets the effort level"),
+    ("/speed", "shows or sets the speed: fast or standard"),
     ("/mode", "shows or sets the permission mode"),
     ("/title", "renames the session (also /rename)"),
     ("/queue", "sends a message as its own turn, after the running one"),
@@ -114,6 +116,7 @@ pub fn parse(line: &str) -> Line {
         "help" | "?" => Cmd::Help,
         "model" => Cmd::Model(opt(rest)),
         "effort" => Cmd::Effort(opt(rest)),
+        "speed" => Cmd::Speed(opt(rest)),
         "mode" => Cmd::Mode(opt(rest)),
         "title" | "rename" => match opt(rest) {
             Some(t) => Cmd::Title(t),
@@ -232,6 +235,8 @@ mod tests {
         assert_eq!(parse("/push ~/src/billing --to bill"), Line::Command(Cmd::Push { dir: "~/src/billing".into(), to: Some("bill".into()) }));
         assert_eq!(parse("/subagents 2"), Line::Command(Cmd::Subagents(Some(2))));
         assert_eq!(parse("/stop"), Line::Command(Cmd::Interrupt));
+        assert_eq!(parse("/speed standard"), Line::Command(Cmd::Speed(Some("standard".into()))));
+        assert_eq!(parse("/speed"), Line::Command(Cmd::Speed(None)));
         assert_eq!(parse("/deploy now"), Line::Unknown("unknown command /deploy. To send it to the agent, type //deploy".into()));
     }
 

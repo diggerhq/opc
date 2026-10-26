@@ -135,6 +135,9 @@ pub struct NewSession {
     /// Effort level for the new session
     #[arg(long, value_name = "LEVEL")]
     pub effort: Option<String>,
+    /// Speed for the new session: fast (the default) or standard
+    #[arg(long, value_name = "SPEED", value_parser = ["fast", "standard"])]
+    pub speed: Option<String>,
     /// Permission mode for the new session
     #[arg(long, visible_alias = "permission-mode", value_name = "MODE")]
     pub mode: Option<String>,
@@ -806,7 +809,7 @@ pub const COMMANDS: &[&str] = &[
 
 /// Root options that take a value, for finding the first word.
 const VALUE_OPTS: &[&str] = &[
-    "-s", "--session", "--model", "--effort", "--mode", "--permission-mode", "--title", "--metadata", "--push",
+    "-s", "--session", "--model", "--effort", "--speed", "--mode", "--permission-mode", "--title", "--metadata", "--push",
     "--idempotency-key", "--output-format", "--on-ask", "--timeout",
 ];
 
@@ -928,6 +931,15 @@ mod tests {
         assert_eq!(c.message, vec!["hello"]);
         let c = p(&["--timing", "ls"]).unwrap();
         assert!(c.global.timing);
+    }
+
+    #[test]
+    fn speed_is_fast_or_standard() {
+        let c = p(&["-p", "--speed", "standard", "hello"]).unwrap();
+        assert_eq!(c.run.new.speed.as_deref(), Some("standard"));
+        assert_eq!(c.message, vec!["hello"]);
+        assert!(p(&["-p", "--speed", "slow", "hello"]).is_err());
+        assert_eq!(first_word(&["--speed".into(), "fast".into(), "ls".into()]), Some((2, "ls")));
     }
 
     #[test]

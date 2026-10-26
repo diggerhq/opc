@@ -10,6 +10,7 @@ A line that starts with `/` is a command to `opc`, not a message to the agent. `
 | `/help` | Lists these commands |
 | `/model [name]` | Shows or sets the model |
 | `/effort [level]` | Shows or sets the effort level |
+| `/speed [fast\|standard]` | Shows or sets the speed |
 | `/mode [name]` | Shows or sets the permission mode |
 | `/title <words>` | Renames the session. `/rename` is an alias. |
 | `/queue <message>` | Sends a message as its own turn, after the running one |
@@ -34,7 +35,7 @@ A line that starts with `/` is a command to `opc`, not a message to the agent. `
 
 ## Settings
 
-`/model`, `/effort` and `/mode` without an argument open a chooser with the values the session allows, the current one marked. With an argument they set it directly:
+`/model`, `/effort`, `/speed` and `/mode` without an argument open a chooser with the values the session allows, the current one marked. With an argument they set it directly:
 
 ```
 > /model sonnet 5.5

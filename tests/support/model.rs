@@ -140,6 +140,7 @@ pub struct Sess {
     pub origin: Value,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub speed: Option<String>,
     pub mode: String,
     pub metadata: Map<String, Value>,
     pub created_at: String,
@@ -215,7 +216,7 @@ impl Sess {
         }
     }
     pub fn settings(&self) -> Value {
-        json!({"model": self.model, "effort": self.effort, "mode": self.mode})
+        json!({"model": self.model, "effort": self.effort, "mode": self.mode, "speed": self.speed})
     }
 
     pub fn to_json(&self) -> Value {
@@ -337,6 +338,7 @@ impl World {
             origin: origin.clone(),
             model: settings.0,
             effort: settings.1,
+            speed: None,
             mode: settings.2,
             metadata,
             created_at: t.clone(),

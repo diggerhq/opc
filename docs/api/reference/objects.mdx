@@ -19,7 +19,7 @@ The objects and events are also published as JSON Schema: [`https://raw.githubus
   "archived": false,
   "owner": { "id": "usr_2k9d8f7a", "name": "Ada Lovelace", "email": "ada@acme.dev" },
   "origin": { "type": "opc", "client": "opc/0.1.0", "slack": null },
-  "settings": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits" },
+  "settings": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits", "speed": null },
   "metadata": { "job": "ci-fix-tests" },
   "activeTurnId": "tn_4m8q2x7c1v9b",
   "queued": [{ "id": "tn_9x2c7v1b4m8q", "status": "queued", "input": "then update the changelog", "…": "Turn" }],
@@ -48,7 +48,7 @@ The objects and events are also published as JSON Schema: [`https://raw.githubus
 | `archived` | boolean | Archived sessions are left out of lists unless asked for. Set with [`PATCH`](/api/http/sessions#update-a-session). Any new message un-archives the session. |
 | `owner` | [Person](#person) | Who started the session. The agent acts as this person. |
 | `origin` | object | Where the session started. `type` is `slack`, `opc`, `dashboard` or `api`, the same values as [`actor.via`](#actor). `client` is the creating client's name and version, from its `User-Agent`, or `null`. `slack` is `{ teamId, channelId, channelName, threadTs, url }` for sessions started in Slack, else `null`. The `type` `session` is reserved for sessions another session starts, which will also carry `origin.parent`: `{ sessionId, callId }`. |
-| `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now. `model` and `effort` are `null` until the session reports them. |
+| `settings` | object | `model`, `effort` and `speed` for the next turn, and the permission `mode` in force now. `model` and `effort` are `null` until the session reports them. `speed` is `fast` or `standard`; `null` means the default, `fast`. |
 | `metadata` | object | Your own string keys and string values, `{}` when none. At most 20 keys; keys up to 40 characters, values up to 500. Set on create and with `PATCH`. Filter lists with `metadata[key]=value`. |
 | `activeTurnId` | string or null | The running turn |
 | `queued` | array of [Turn](#turn) | Turns waiting to run, in the order they will run |

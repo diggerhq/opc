@@ -40,7 +40,7 @@ pub fn create_body(id: &str, new: &NewSession, input: Option<&str>) -> Value {
     if let Some(i) = input {
         b.insert("input".into(), json!(i));
     }
-    for (k, v) in [("title", &new.title), ("model", &new.model), ("effort", &new.effort), ("mode", &new.mode)] {
+    for (k, v) in [("title", &new.title), ("model", &new.model), ("effort", &new.effort), ("speed", &new.speed), ("mode", &new.mode)] {
         if let Some(v) = v {
             b.insert(k.into(), json!(v));
         }
@@ -75,13 +75,14 @@ pub fn reject_new_session_options(new: &NewSession) -> Result<()> {
     let given = [
         (new.model.is_some(), "--model"),
         (new.effort.is_some(), "--effort"),
+        (new.speed.is_some(), "--speed"),
         (new.mode.is_some(), "--mode"),
         (new.title.is_some(), "--title"),
         (!new.metadata.is_empty(), "--metadata"),
         (!new.push.is_empty(), "--push"),
     ];
     if let Some((_, name)) = given.iter().find(|(g, _)| *g) {
-        return Err(Error::usage(format!("{name} is for a new session; with -s, change settings in the session (/model, /mode) or use opc push")));
+        return Err(Error::usage(format!("{name} is for a new session; with -s, change settings in the session (/model, /speed, /mode) or use opc push")));
     }
     Ok(())
 }

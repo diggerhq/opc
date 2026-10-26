@@ -356,6 +356,26 @@ fn new_send_wait() {
 }
 
 #[test]
+fn speed_goes_with_a_new_session_only() {
+    let fake = Fake::start();
+    let o = run(&fake, &["new", "--speed", "standard"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let sid = o.stdout.trim().to_string();
+    assert_eq!(fake.requests_to("POST /sessions")[0].json()["speed"], "standard");
+    let o = run(&fake, &["-p", "--output-format", "stream-json", "--speed", "fast", "reply ok"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.lines()[0]["settings"]["speed"], "fast", "{}", o.stdout);
+    let o = run(&fake, &["-p", "reply ok"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(fake.requests_to("POST /sessions").last().unwrap().json().get("speed").is_none());
+    let o = run(&fake, &["new", "--speed", "slow"]);
+    assert_eq!(o.code, 2, "{}", o.stderr);
+    let o = run(&fake, &["-p", "-s", &sid, "--speed", "fast", "reply ok"]);
+    assert_eq!(o.code, 2, "{}", o.stderr);
+    assert!(o.stderr.contains("--speed is for a new session"), "{}", o.stderr);
+}
+
+#[test]
 fn send_wait_reports_the_turn() {
     let fake = Fake::start();
     let sid = fake.seed_session(Seed::new("x"));
