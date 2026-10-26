@@ -85,7 +85,7 @@ pub async fn run(ctx: &mut Ctx, args: WatchArgs) -> Result<i32> {
                     printed.insert(e.session_id().to_string(), e.seq());
                     print_event(e, format, several, &style);
                 }
-                Step::Delta(d) if deltas && matches!(d.kind(), "message.delta" | "reasoning.delta") => print_line(&d.0),
+                Step::Delta(d) if deltas && d.partial() => print_line(&d.0),
                 Step::Reconnecting { attempt, retry_in, .. } if super::follow::worth_saying(*attempt, *retry_in) => ctx.progress(&format!("connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64))),
                 _ => {}
             }

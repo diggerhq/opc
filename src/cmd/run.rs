@@ -221,7 +221,7 @@ impl Printer {
                 }
                 _ => {}
             },
-            Step::Delta(d) if format == Format::StreamJson && partial && matches!(d.kind(), "message.delta" | "reasoning.delta") => print_line(&d.0),
+            Step::Delta(d) if format == Format::StreamJson && partial && d.partial() => print_line(&d.0),
             Step::Reconnecting { attempt, retry_in, .. } if progress && follow::worth_saying(*attempt, *retry_in) => eprintln!("opc: connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64)),
             Step::Detached(sid, reason) => eprintln!("opc: stopped receiving {sid}: {reason}"),
             _ => {}

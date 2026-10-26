@@ -190,7 +190,7 @@ pub struct RunArgs {
     /// With -p: short for --output-format json
     #[arg(long, conflicts_with = "output_format")]
     pub json: bool,
-    /// With stream-json: also print text deltas
+    /// With stream-json: also print deltas (text, reasoning, tool calls being written, tool output)
     #[arg(long)]
     pub include_partial_messages: bool,
     /// With -p, when an ask opens: fail (exit 5), dismiss, or wait (also on send --wait and wait)
@@ -503,7 +503,7 @@ pub struct WatchArgs {
     /// Short for --output-format json
     #[arg(long, conflicts_with = "output_format")]
     pub json: bool,
-    /// With stream-json: also print text deltas
+    /// With stream-json: also print deltas (text, reasoning, tool calls being written, tool output)
     #[arg(long)]
     pub include_partial_messages: bool,
 }
