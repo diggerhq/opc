@@ -3751,6 +3751,18 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "subagentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sa_[0-9a-hjkmnp-tv-z]{12}$",
+                  "description": "`sa_` + 12 lowercase Crockford base32"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3914,6 +3926,18 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "subagentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sa_[0-9a-hjkmnp-tv-z]{12}$",
+                  "description": "`sa_` + 12 lowercase Crockford base32"
                 },
                 {
                   "type": "null"
