@@ -11,7 +11,7 @@ $ opc doctor
 ✓ credential    igor-mbp · Igor Zalutski · acme                84 ms
 ✓ api           https://app.opencomputer.dev                   (same request)
 ✓ computer      ready                                          (same request)
-✓ connection    wss://wire.opencomputer.app · LHR → IAD        168 ms
+✓ connection    wss://wire.opencomputer.dev · LHR → IAD        168 ms
 ✓ round trip    80 ms median, 94 ms p90 (20 pings)            1.6 s
 ```
 
@@ -31,7 +31,7 @@ $ opc doctor
     Your organization's computer was asleep. Starting it takes seconds, longer the first time after a long break. If it takes more than two minutes, `opc doctor` reports the computer's state, and the dashboard shows it under **Computer**.
   </Accordion>
   <Accordion title="Every launch is slow, not just the first">
-    Run `opc --timing`. If `connection open` is several round trips, a proxy or VPN may be terminating TLS: set `NO_PROXY=wire.opencomputer.app` if your network allows it. Through a proxy set in `HTTPS_PROXY`, `opc` tunnels both its requests and its session connection with `CONNECT`, which adds the proxy's own delay. If `agent start` says `cold` every time, your computer has no pre-started agents left, which happens when many sessions start at once.
+    Run `opc --timing`. If `connection open` is several round trips, a proxy or VPN may be terminating TLS: set `NO_PROXY=wire.opencomputer.dev` if your network allows it. Through a proxy set in `HTTPS_PROXY`, `opc` tunnels both its requests and its session connection with `CONNECT`, which adds the proxy's own delay. If `agent start` says `cold` every time, your computer has no pre-started agents left, which happens when many sessions start at once.
   </Accordion>
   <Accordion title="Text arrives in bursts">
     The connection is slow or losing packets. `opc` never shows wrong text: deltas it could not receive in time are skipped, and each block is redrawn complete when it ends. The status line shows `slow connection` when this happens often.
@@ -40,7 +40,7 @@ $ opc doctor
     The connection dropped. `opc` reconnects at once when the network changes, when your machine wakes or when you press `Enter`, and otherwise with backoff, at most 8 seconds apart. Then it catches up on everything it missed. Messages you send meanwhile are marked `pending` and sent once; `Esc` takes them back into the prompt line. Nothing is lost on the computer: the session keeps working without you.
   </Accordion>
   <Accordion title="session not found">
-    The id or prefix matches no session you can see. Sessions from Slack channels you are not in are hidden, and archived sessions are not matched by title. Try `opc ls --all`, `opc ls --archived`, or the Slack thread link.
+    The id or prefix matches no session you can see. Sessions from Slack channels you are not in are hidden, and archived sessions are not matched by title. Try `opc ls --archived`, or the Slack thread link. `opc ls` lists only your own sessions; a colleague's attaches by id or link.
   </Accordion>
   <Accordion title="opc: looks like a message">
     The first word was the name of a command, and the rest did not fit it, so `opc` did nothing. Quote the message: `opc "push the fix to main"`, or put `--` first: `opc -- push the fix to main`. See [Start a session](/cli/sessions#start-a-session).

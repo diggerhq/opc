@@ -80,7 +80,6 @@ Attaches to a session. Alias: `opc attach`. Attaching resumes a suspended sessio
 
 | Option | Does |
 | --- | --- |
-| `--all` | Match and pick among the organization's sessions, not only yours |
 | `--read-only` | Attach without the ability to send or answer |
 | `--history <n>` | Print the last `n` turns in full. Default: the last turn in full, one line for each of the 10 before it. |
 | `--no-history` | Do not print earlier turns |
@@ -97,7 +96,6 @@ Lists sessions. Alias: `opc list`.
 
 | Option | Does |
 | --- | --- |
-| `--all` | The organization's sessions |
 | `--status <status>` | `starting`, `running`, `waiting`, `idle` or `suspended`. Repeatable. |
 | `--metadata <key=value>` | Only sessions with this metadata. Repeatable: every pair must match. |
 | `--archived` | Only archived sessions. Archived sessions are left out otherwise. |
@@ -192,7 +190,7 @@ Interrupts the running turn and cancels queued ones.
 ## opc ask
 
 ```
-opc ask ls [<id>] [--all] [--json]
+opc ask ls [<id>] [--json]
 opc ask allow|deny|always <ak_…> [-m <message>] [--json]
 opc ask answer <ak_…> --choice <label>… [--text <text>] [--json]
 opc ask answer <ak_…> - [--json]
@@ -203,7 +201,7 @@ Lists and answers [asks](/terminal/asks) without attaching. Every subcommand acc
 
 | Subcommand | Does |
 | --- | --- |
-| `ls` | Open asks in a session, or in all your sessions. `--all`: the organization's. `--json`: `{ "asks": [Ask…] }`. |
+| `ls` | Open asks in a session, or in all your sessions. `--json`: `{ "asks": [Ask…] }`. |
 | `allow`, `deny`, `always` | Answers an approval. `always` also allows the calls its `alwaysAllows` rule describes, for the rest of the session. `-m` is a message the agent reads with the decision. |
 | `answer` | Answers a question. `--choice` takes an option label exactly as given, repeatable for `multiSelect`; `--text` is an answer in your own words. For an ask with several questions, pass the API's [answer body](/api/http/asks#answer-an-ask) on standard input with `-`. |
 | `dismiss` | Closes any ask without an answer. `-m` is a message the agent reads. |

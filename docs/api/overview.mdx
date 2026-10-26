@@ -9,7 +9,7 @@ It has two parts that share one data model:
 
 | | HTTP | WebSocket |
 | --- | --- | --- |
-| Base | `https://app.opencomputer.dev/api/managed-agents/computer` | `wss://wire.opencomputer.app/v1` |
+| Base | `https://app.opencomputer.dev/api/managed-agents/computer` | `wss://wire.opencomputer.dev/v1` |
 | Use it for | Creating and listing sessions, single actions, reading history, files, secrets | Watching sessions live: text as it is written, a few milliseconds after the model produces it |
 | Shape | JSON requests and responses | JSON-RPC 2.0 messages |
 | Auth | An API key on every request | The API key on the upgrade request, or a short-lived [ticket](/api/http/tickets) from a browser |
@@ -22,7 +22,7 @@ Every action is available over HTTP. The WebSocket adds live events, text deltas
  opc · your programs · the dashboard              Slack
         │                                           │
         │ HTTP, API key       app.opencomputer.dev  │
-        │ WebSocket, key      wire.opencomputer.app │
+        │ WebSocket, key      wire.opencomputer.dev │
         │   (or ticket)                             │
         ▼                                           ▼
   OpenComputer edge ─────────────▶ your organization's computer

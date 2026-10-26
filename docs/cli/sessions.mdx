@@ -38,11 +38,11 @@ The prompt line is live at once. If the session cannot be created, because the n
 
 ```
 $ opc ls
-   ID    TITLE                              STATUS            WHERE      WHO    ACTIVE
- ◆ 7f3a  flaky test in segment.test.ts      waiting for you   #_build    you    2m
- ● 9c1e  codex contract review              running           opc        you    14m
-   b20d  warm pool round 3                  idle              #_build    you    3h
-   e4k8  old spike                          suspended         opc        you    2d
+   ID    TITLE                              STATUS            WHERE      ACTIVE
+ ◆ 7f3a  flaky test in segment.test.ts      waiting for you   #_build    2m
+ ● 9c1e  codex contract review              running           opc        14m
+   b20d  warm pool round 3                  idle              #_build    3h
+   e4k8  old spike                          suspended         opc        2d
 ```
 
 - **ID** is the shortest unique prefix, at least four characters.
@@ -53,7 +53,6 @@ $ opc ls
 
 | Option | Does |
 | --- | --- |
-| `--all` | Every session in the organization, with the owner in **WHO** |
 | `--status <status>` | Only sessions in this status. Repeat for several: `--status running --status waiting`. |
 | `--archived` | Only archived sessions |
 | `--metadata <key>=<value>` | Only sessions with this metadata. Repeat to require several. |
@@ -83,7 +82,7 @@ opc a https://acme.slack.com/archives/C07ABC/p1761400000000100   # by Slack thre
 
 `opc a` with no argument, and `/sessions` inside a session, open a **picker**: type to filter on titles and last lines, `↑` `↓` to move, `Enter` to attach, `Esc` to cancel. The picker opens instantly on the list cached from the last run and refreshes in place.
 
-With words, `opc a` attaches when exactly one of your sessions matches, and opens the picker filtered to the matches otherwise. Add `--all` to match the organization's sessions.
+With words, `opc a` attaches when exactly one of your sessions matches, and opens the picker filtered to the matches otherwise. Words and the picker match only your sessions; to attach to a colleague's, use its id or Slack link.
 
 `opc a -` attaches to the last session on this machine. With no such session it attaches to your most recently active one.
 
