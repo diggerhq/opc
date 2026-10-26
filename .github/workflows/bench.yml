@@ -1,0 +1,38 @@
+name: bench
+# The latency gates of docs/reference/timing.mdx against staging, nightly.
+# Runs only when the staging key is configured; the key stays in the
+# environment and never appears on a command line.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: runs per row
+        default: '200'
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    env:
+      OPENCOMPUTER_API_KEY: ${{ secrets.OPC_BENCH_API_KEY }}
+      OPENCOMPUTER_API_URL: ${{ vars.OPC_BENCH_API_URL }}
+      TINYBIRD_URL: ${{ vars.TINYBIRD_URL }}
+      TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+      BENCH_REGION: ${{ vars.OPC_BENCH_REGION }}
+    steps:
+      - if: env.OPENCOMPUTER_API_KEY == '' || env.OPENCOMPUTER_API_URL == ''
+        run: echo "OPC_BENCH_API_KEY or OPC_BENCH_API_URL is not set; nothing to measure"
+      - if: env.OPENCOMPUTER_API_KEY != '' && env.OPENCOMPUTER_API_URL != ''
+        uses: actions/checkout@v4
+      - if: env.OPENCOMPUTER_API_KEY != '' && env.OPENCOMPUTER_API_URL != ''
+        uses: dtolnay/rust-toolchain@stable
+      - if: env.OPENCOMPUTER_API_KEY != '' && env.OPENCOMPUTER_API_URL != ''
+        uses: Swatinem/rust-cache@v2
+      - if: env.OPENCOMPUTER_API_KEY != '' && env.OPENCOMPUTER_API_URL != ''
+        env:
+          RUNS: ${{ inputs.runs || '200' }}
+        run: |
+          cargo build --release --locked
+          python3 bench/bench.py --opc target/release/opc --runs "$RUNS" --corpus-mb 500

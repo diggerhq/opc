@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      # The fake server validates against schema/; this keeps schema/ honest.
+      - run: ci/schema-check.sh
+      # launch -> prompt needs no server: gate it on every change.
+      - run: python3 bench/bench.py --local --runs 50 --opc target/release/opc
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked

@@ -182,7 +182,7 @@ pub struct Sess {
     /// tool.started data of calls still open, per turn.
     pub open_calls: HashMap<String, Vec<Value>>,
     /// Steered messages the agent has not read yet, per turn: (input, author).
-    pub unread: HashMap<String, Vec<(String, Value)>>,
+    pub unread: HashMap<String, Vec<(String, Value, u64)>>,
 }
 
 pub fn st(v: &Value, k: &str) -> String {
@@ -423,8 +423,8 @@ impl World {
     /// The agent takes in steered messages: `turn.steered` for each.
     pub fn read_steering(&mut self, sid: &str, tid: &str) {
         let Some(msgs) = self.s(sid).unread.remove(tid) else { return };
-        for (_, author) in msgs {
-            self.emit(sid, Some(tid), "turn.steered", Some(&author), json!({}));
+        for (_, author, seq) in msgs {
+            self.emit(sid, Some(tid), "turn.steered", Some(&author), json!({"messageSeq": seq}));
         }
     }
 
@@ -498,7 +498,7 @@ impl World {
         self.emit(sid, Some(tid), event_type, actor, data);
         // A steered message the agent never read starts a new turn at once, ahead of the queue.
         if let Some(msgs) = self.s(sid).unread.remove(tid) {
-            for (input, author) in msgs {
+            for (input, author, _) in msgs {
                 let t = self.s(sid).turn_mut(tid).expect("turn");
                 if let Some(a) = t["steering"].as_array_mut()
                     && let Some(i) = a.iter().rposition(|m| m["input"] == input.as_str())
@@ -620,7 +620,7 @@ impl World {
                 let t = self.s(sid).turn_mut(&atid).expect("turn");
                 t["steering"].as_array_mut().unwrap().push(json!({"input": input, "author": author, "createdAt": now()}));
                 // turn.steered is recorded when the agent reads it, at its next step.
-                self.s(sid).unread.entry(atid.clone()).or_default().push((input, author.clone()));
+                self.s(sid).unread.entry(atid.clone()).or_default().push((input, author.clone(), mseq));
                 Ok((atid, "steered"))
             }
             _ => {
