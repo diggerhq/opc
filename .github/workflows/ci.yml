@@ -9,7 +9,7 @@ jobs:
   test:
     # The org's 16-core runner; pull requests from forks run on GitHub's own
     # runners instead, so outside code never runs on ours.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-24.04' || 'jog-16vcpu' }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-24.04' || 'ubuntu-16-64-20' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
