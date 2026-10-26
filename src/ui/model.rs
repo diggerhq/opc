@@ -18,8 +18,10 @@ use super::{Seg, Sty, TLine, clean, dur, first_line, g, plural, spinner, timer, 
 use crate::api::types::{Actor, Ask, Capabilities, Delta, Event, Settings, Subagent, Turn};
 use crate::wire::AttachInfo;
 
-/// Columns before the agent's text and other people's messages.
+/// Columns before a person's message (after the `you` gutter).
 pub const TEXT_INDENT: usize = 6;
+/// The agent's reply: at the step column, beside its tool rows rather than under one (they are its own steps).
+pub const REPLY_INDENT: usize = 2;
 /// A running turn notifies when it ends only if it took longer than this.
 const NOTIFY_AFTER_MS: i64 = 10_000;
 /// Reasoning shorter than this is not mentioned in a run.
@@ -1037,7 +1039,7 @@ impl Model {
         }
         self.settle_run(false);
         if let Some(t) = self.turn.as_mut() {
-            t.text = Some((block.to_string(), Md::new(TEXT_INDENT)));
+            t.text = Some((block.to_string(), Md::new(REPLY_INDENT)));
         }
     }
 
@@ -1265,11 +1267,11 @@ impl Model {
         match e.kind.as_str() {
             "turn.completed" => {
                 if e.silent {
-                    self.out.push(TLine::new(TEXT_INDENT, TEXT_INDENT).s("(no reply)", Sty::Dim));
+                    self.out.push(TLine::new(REPLY_INDENT, REPLY_INDENT).s("(no reply)", Sty::Dim));
                 } else if self.turn_had_no_text(&t)
                     && let Some(text) = e.text.filter(|x| !x.trim().is_empty())
                 {
-                    let mut md = Md::new(TEXT_INDENT);
+                    let mut md = Md::new(REPLY_INDENT);
                     md.push(&text);
                     md.finish();
                     self.last_text = Some(md.source.clone());
@@ -2040,7 +2042,7 @@ mod tests {
         m.event(&ev(4, "message.completed", "tn_1", json!({"blockId": "b1", "text": "All green."})), 4200);
         m.event(&ev(5, "turn.completed", "tn_1", json!({"text": "All green.", "durationMs": 72_000})), 4300);
         let out = texts(&mut m);
-        assert_eq!(out, vec!["  ✓ Bash  Run the suite · 4.1 s", "      All green.", "  ── 1m 12s · 1 step"]);
+        assert_eq!(out, vec!["  ✓ Bash  Run the suite · 4.1 s", "  All green.", "  ── 1m 12s · 1 step"]);
     }
 
     #[test]
@@ -2272,7 +2274,7 @@ mod tests {
         m.event(&ev(2, "turn.started", "tn_1", json!({})), 0);
         m.event(&ev(3, "turn.completed", "tn_1", json!({"text": "", "silent": true, "durationMs": 900})), 900);
         let out = texts(&mut m);
-        assert!(out.contains(&"      (no reply)".to_string()), "{out:?}");
+        assert!(out.contains(&"  (no reply)".to_string()), "{out:?}");
     }
 
     #[test]
