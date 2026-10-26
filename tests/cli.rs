@@ -123,6 +123,43 @@ fn silent_turn_prints_nothing() {
     assert_eq!(o.stdout.trim(), "");
 }
 
+/// A parent that leaves stdin open and never writes (execFile, docker -i)
+/// must not stop `-p "message"` from running.
+#[test]
+fn open_silent_stdin_does_not_hang() {
+    let fake = Fake::start();
+    let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_opc"));
+    c.envs(fake.env()).env_remove("OPC_LOG").args(["-p", "reply not stuck"]);
+    c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = c.spawn().unwrap();
+    let _held_open = child.stdin.take();
+    let end = std::time::Instant::now() + T;
+    while child.try_wait().unwrap().is_none() {
+        assert!(std::time::Instant::now() < end, "opc -p waited on an open, silent stdin");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let o = child.wait_with_output().unwrap();
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "not stuck");
+}
+
+/// Input that starts a little late is still added to the message.
+#[test]
+fn piped_input_after_words_is_appended() {
+    let fake = Fake::start();
+    let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_opc"));
+    c.envs(fake.env()).env_remove("OPC_LOG").args(["-p", "reply"]);
+    c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = c.spawn().unwrap();
+    let mut w = child.stdin.take().unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    std::io::Write::write_all(&mut w, b"late input").unwrap();
+    drop(w);
+    let o = child.wait_with_output().unwrap();
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("late input"), "{}", String::from_utf8_lossy(&o.stdout));
+}
+
 #[test]
 fn message_from_stdin() {
     let fake = Fake::start();
@@ -524,4 +561,127 @@ fn messages_that_look_like_commands() {
     let fake = Fake::start();
     let o = run(&fake, &["-p", "ls the files"]);
     assert_eq!(o.code, 0, "{}", o.stderr);
+}
+
+// ---- a server that accepts and never answers -------------------------------
+
+/// A TCP port that accepts connections and never says a word: a TLS
+/// handshake or a request to it hangs, as behind a firewall that eats
+/// traffic.
+fn silent_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let mut held = vec![];
+        for c in l.incoming().flatten() {
+            held.push(c);
+        }
+    });
+    port
+}
+
+fn opc_against(fake: &Fake, api: &str, args: &[&str]) -> (Out, Duration) {
+    let mut c = fake.opc();
+    c.env("OPENCOMPUTER_API_URL", api).env("OPC_WIRE_URL", api.replace("http", "ws")).args(args);
+    let t = std::time::Instant::now();
+    let o = c.output().unwrap();
+    (Out { code: o.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&o.stdout).into(), stderr: String::from_utf8_lossy(&o.stderr).into() }, t.elapsed())
+}
+
+#[test]
+fn connect_that_never_completes_fails_within_ten_seconds() {
+    let fake = Fake::start();
+    let port = silent_port();
+    let (o, took) = opc_against(&fake, &format!("https://127.0.0.1:{port}"), &["ls", "--json"]);
+    assert_eq!(o.code, 4, "{}", o.stderr);
+    assert_eq!(o.err_json()["error"]["code"], "unreachable", "{}", o.stderr);
+    assert!(took < Duration::from_secs(14), "took {took:?}");
+}
+
+#[test]
+fn timeout_covers_the_first_request() {
+    let fake = Fake::start();
+    let port = silent_port();
+    let (o, took) = opc_against(&fake, &format!("http://127.0.0.1:{port}"), &["-p", "--timeout", "2s", "--output-format", "json", "reply hi"]);
+    assert_eq!(o.code, 124, "{}", o.stderr);
+    assert!(took < Duration::from_secs(5), "took {took:?}");
+}
+
+// ---- a computer that is starting ------------------------------------------
+
+#[test]
+fn push_and_pull_wait_for_a_starting_computer() {
+    let fake = Fake::start();
+    let sid = fake.seed_session(Seed::new("ws"));
+    let src = tempfile::tempdir().unwrap();
+    std::fs::create_dir(src.path().join("app")).unwrap();
+    std::fs::write(src.path().join("app/main.txt"), "hello").unwrap();
+    let cold = || Failure::new(503, "computer_unavailable").with("retryAfterMs", 300);
+
+    fake.fail_next("PUT /sessions/*/workspace/archive", 5, cold());
+    let o = run(&fake, &["push", src.path().join("app").to_str().unwrap(), "-s", &sid, "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let puts = fake.requests_to("PUT /sessions/*/workspace/archive");
+    assert_eq!(puts.len(), 6);
+    assert!(puts.iter().all(|r| r.idempotency_key().is_some() && r.idempotency_key() == puts[0].idempotency_key()), "the key changed between retries");
+
+    let dest = tempfile::tempdir().unwrap();
+    fake.fail_next("GET /sessions/*/workspace/archive", 5, cold());
+    let o = run(&fake, &["pull", "app", dest.path().join("app").to_str().unwrap(), "-s", &sid, "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(std::fs::read_to_string(dest.path().join("app/main.txt")).unwrap(), "hello");
+}
+
+#[test]
+fn wire_refusing_a_valid_key_exits_forbidden() {
+    let fake = Fake::start();
+    fake.refuse_ws(Some((4003, "not_your_session")));
+    let t = std::time::Instant::now();
+    let o = run(&fake, &["-p", "--output-format", "json", "reply hi"]);
+    assert_eq!(o.code, 3, "{}", o.stderr);
+    assert_eq!(o.err_json()["error"]["code"], "forbidden", "{}", o.stderr);
+    assert!(t.elapsed() < Duration::from_secs(10), "it retried: {:?}", t.elapsed());
+}
+
+/// Another environment's key never goes to the production wire: without a
+/// wire URL from that API's `/me`, opc says so and stops.
+#[test]
+fn non_default_api_without_a_wire_url_fails_clearly() {
+    let fake = Fake::start();
+    fake.set_ws_enabled(false);
+    let mut c = fake.opc();
+    c.env_remove("OPC_WIRE_URL").args(["-p", "--output-format", "json", "reply hi"]);
+    let o = c.output().unwrap();
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert_ne!(o.status.code(), Some(0), "{stderr}");
+    assert!(stderr.contains("computer_not_set_up") && stderr.contains("wireUrl"), "{stderr}");
+    assert!(!stderr.contains("wire.opencomputer.dev"), "{stderr}");
+}
+
+#[test]
+fn print_accepts_json() {
+    let fake = Fake::start();
+    let o = run(&fake, &["-p", "--json", "reply as json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["result"], "as json", "{}", o.stdout);
+}
+
+#[test]
+fn stream_json_parse_failure_ends_stdout_with_a_result() {
+    let fake = Fake::start();
+    let o = run(&fake, &["-p", "--output-format", "stream-json", "--bogus", "hi"]);
+    assert_eq!(o.code, 2);
+    let last = o.lines().pop().expect("a result line");
+    assert_eq!(last["type"], "result");
+    assert_eq!(last["subtype"], "error");
+}
+
+#[test]
+fn watch_json_errors_are_json() {
+    let fake = Fake::start();
+    fake.refuse_ws(Some((4003, "no_access")));
+    let sid = fake.seed_session(Seed::new("w"));
+    let o = run(&fake, &["watch", &sid, "--json"]);
+    assert_eq!(o.code, 3, "{}", o.stderr);
+    assert_eq!(o.err_json()["error"]["code"], "forbidden");
 }

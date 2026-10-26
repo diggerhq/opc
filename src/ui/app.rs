@@ -84,7 +84,7 @@ enum Bg {
     Sent { out: u64, result: Result<Value> },
     Me(Value),
     /// The connection's URL, found with `/me`.
-    WireUrl(String),
+    WireUrl(Result<String>),
     Answered { ask: String, always: Option<String>, result: Result<Value> },
     Secret { ask: String, name: String, scope: String, result: Result<()> },
     Sessions(Vec<Session>),
@@ -312,7 +312,7 @@ impl<'a> App<'a> {
                     self.dirty = true;
                 }
                 Step::Bg(Bg::WireUrl(url)) => {
-                    rx = Some(self.open_wire(url, &start)?);
+                    rx = Some(self.open_wire(url?, &start)?);
                     self.dirty = true;
                 }
                 Step::Bg(b) => {

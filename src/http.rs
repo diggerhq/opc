@@ -67,6 +67,9 @@ pub fn full(bytes: impl Into<Bytes>) -> Body {
 /// How long to keep retrying `429`/`503` when the command has no `--timeout`.
 const DEFAULT_RETRY_BUDGET: Duration = Duration::from_secs(60);
 
+/// How long a connection (TCP, TLS, HTTP/2) may take, like the wire's dial.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// The newest version the server told us about (`x-opc-latest`).
 static LATEST: OnceLock<String> = OnceLock::new();
 
@@ -142,6 +145,30 @@ impl Http {
         *self.inner.deadline.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// When retries of `429`/`503` must stop: `--timeout`, or
+    /// [`DEFAULT_RETRY_BUDGET`] from now.
+    pub fn retry_budget_end(&self) -> Instant {
+        self.deadline().unwrap_or_else(|| Instant::now() + DEFAULT_RETRY_BUDGET)
+    }
+
+    /// How long to wait before repeating a request that failed with `err`
+    /// (`429`/`503` only), or `None` when it must not be repeated before
+    /// `budget_end`. A cold computer turns on the "starting" notice.
+    pub fn retry_wait(&self, err: &Error, attempt: u32, budget_end: Instant) -> Option<Duration> {
+        if !matches!(err.status, Some(429 | 503)) {
+            return None;
+        }
+        let wait = Duration::from_millis(err.retry_after_ms().unwrap_or(500 * u64::from(attempt.clamp(1, 8))));
+        if Instant::now() + wait >= budget_end {
+            return None;
+        }
+        if err.code == "computer_unavailable" {
+            mark_computer_starting(true);
+        }
+        crate::log::info(&format!("{} {}: retrying in {}", err.status.unwrap_or(0), err.code, timing::ms(wait)));
+        Some(wait)
+    }
+
     /// Opens the connection now, so the first request does not pay for it.
     pub fn warm(&self) {
         let me = self.clone();
@@ -155,7 +182,14 @@ impl Http {
     async fn connect(&self) -> Result<Sender> {
         let started = Instant::now();
         let alpn: &[&[u8]] = if self.inner.h1_only.load(Ordering::Relaxed) { &[b"http/1.1"] } else { &[b"h2", b"http/1.1"] };
-        let stream: Stream = net::connect(&self.inner.target, alpn).await?;
+        // Bounded by CONNECT_TIMEOUT and by `--timeout`, whichever ends first:
+        // a firewall that drops SYNs would otherwise hold us for minutes.
+        let limit = self.deadline().map_or(CONNECT_TIMEOUT, |d| d.saturating_duration_since(started).min(CONNECT_TIMEOUT));
+        let stream: Stream = match tokio::time::timeout(limit, net::connect(&self.inner.target, alpn)).await {
+            Ok(r) => r?,
+            Err(_) if limit < CONNECT_TIMEOUT => return Err(Error::timeout()),
+            Err(_) => return Err(Error::unreachable(format!("could not connect to {} within {} s", self.inner.target.authority(), CONNECT_TIMEOUT.as_secs()))),
+        };
         let h2 = stream.alpn() == Some(b"h2");
         let resumed = stream.resumed();
         let io = TokioIo::new(stream);
@@ -291,7 +325,7 @@ impl Http {
         };
         let body_bytes = body.map(serde_json::to_vec).transpose()?;
         let label = format!("{} {}", method, full_path.split('?').next().unwrap_or(full_path).replace(&self.inner.base_path, ""));
-        let budget_end = self.deadline().unwrap_or_else(|| Instant::now() + DEFAULT_RETRY_BUDGET);
+        let budget_end = self.retry_budget_end();
         let mut attempt = 0u32;
         loop {
             attempt += 1;
@@ -307,12 +341,18 @@ impl Http {
                 None => empty(),
             };
             let started = Instant::now();
-            let res = match self.send_once(&method, full_path, &headers, b).await {
+            let sent = match self.deadline() {
+                Some(d) => tokio::time::timeout_at(d.into(), self.send_once(&method, full_path, &headers, b)).await.unwrap_or_else(|_| Err(Error::timeout())),
+                None => self.send_once(&method, full_path, &headers, b).await,
+            };
+            let res = match sent {
                 Ok(r) => r,
+                Err(e) if e.code == "timeout" => return Err(e),
                 Err(e) => {
                     // A connection that died under us: retry once on a fresh
                     // one. Safe: reads are idempotent and writes carry a key.
-                    if attempt == 1 && (key.is_some() || !is_write) {
+                    // Not after a connect that timed out: it would again.
+                    if attempt == 1 && started.elapsed() < CONNECT_TIMEOUT && (key.is_some() || !is_write) {
                         *self.inner.h2.lock().await = None;
                         continue;
                     }
@@ -324,7 +364,13 @@ impl Http {
             note_latest(&headers);
             let server = headers.get("server-timing").and_then(|v| v.to_str().ok()).and_then(timing::parse_server_timing);
             let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).map(str::to_string);
-            let bytes = res.into_body().collect().await.map_err(|e| Error::unreachable(format!("reading the response: {e}")))?.to_bytes();
+            let body = res.into_body().collect();
+            let bytes = match self.deadline() {
+                Some(d) => tokio::time::timeout_at(d.into(), body).await.map_err(|_| Error::timeout())?,
+                None => body.await,
+            }
+            .map_err(|e| Error::unreachable(format!("reading the response: {e}")))?
+            .to_bytes();
             let took = started.elapsed();
             timing::get().request(&label, took, server);
             crate::log::debug(&format!("{label} → {} in {}{}", status.as_u16(), timing::ms(took), request_id.as_ref().map(|r| format!(" ({r})")).unwrap_or_default()));
@@ -341,16 +387,9 @@ impl Http {
             if let Some(r) = &request_id {
                 err.extra.entry("requestId").or_insert_with(|| Value::String(r.clone()));
             }
-            if matches!(status.as_u16(), 429 | 503) {
-                let wait = Duration::from_millis(err.retry_after_ms().unwrap_or(500 * u64::from(attempt.min(8))));
-                if Instant::now() + wait < budget_end {
-                    if err.code == "computer_unavailable" {
-                        mark_computer_starting(true);
-                    }
-                    crate::log::info(&format!("{} {}: retrying in {}", status.as_u16(), err.code, timing::ms(wait)));
-                    tokio::time::sleep(wait).await;
-                    continue;
-                }
+            if let Some(wait) = self.retry_wait(&err, attempt, budget_end) {
+                tokio::time::sleep(wait).await;
+                continue;
             }
             return Err(err);
         }
@@ -367,19 +406,36 @@ impl Http {
         if let Some(k) = idempotency_key {
             hs.push(("idempotency-key", k.to_string()));
         }
-        let started = Instant::now();
-        let res = self.send_once(&method, &full_path, &hs, body).await?;
-        let status = res.status();
-        note_latest(res.headers());
-        let server = res.headers().get("server-timing").and_then(|v| v.to_str().ok()).and_then(timing::parse_server_timing);
-        timing::get().request(&format!("{method} {path}"), started.elapsed(), server);
-        if status.is_success() {
-            return Ok(res);
+        // A GET has no body to replay, so `429`/`503` are retried here; a
+        // caller with a body retries itself (`retry_wait`).
+        let budget_end = self.retry_budget_end();
+        let mut body = Some(body);
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            let b = body.take().unwrap_or_else(empty);
+            let started = Instant::now();
+            let res = self.send_once(&method, &full_path, &hs, b).await?;
+            let status = res.status();
+            note_latest(res.headers());
+            let server = res.headers().get("server-timing").and_then(|v| v.to_str().ok()).and_then(timing::parse_server_timing);
+            timing::get().request(&format!("{method} {path}"), started.elapsed(), server);
+            if status.is_success() {
+                mark_computer_starting(false);
+                return Ok(res);
+            }
+            let headers = res.headers().clone();
+            let bytes = res.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+            let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            let err = api_error(status.as_u16(), &value, &headers);
+            if method == Method::GET {
+                if let Some(wait) = self.retry_wait(&err, attempt, budget_end) {
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+            }
+            return Err(err);
         }
-        let headers = res.headers().clone();
-        let bytes = res.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
-        let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        Err(api_error(status.as_u16(), &value, &headers))
     }
 
     // ---- typed helpers -------------------------------------------------

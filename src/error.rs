@@ -113,9 +113,11 @@ impl Error {
             "unreachable" | "computer_unavailable" | "rate_limited" | "queue_full" => UNREACHABLE,
             "insufficient_credits" => CREDITS,
             "turn_failed" | "turn_cancelled" => TURN_FAILED,
-            "waiting" => WAITING,
+            "waiting" | "subagent_running" => WAITING,
             "timeout" => TIMEOUT,
             "interrupted" => INTERRUPTED,
+            // `retryable` and the exit code always agree: retry on 4.
+            _ if self.retryable => UNREACHABLE,
             _ => match self.status {
                 Some(s) if s >= 500 => UNREACHABLE,
                 _ => USAGE,
@@ -130,6 +132,9 @@ impl Error {
         obj.insert("retryable".into(), json!(self.retryable));
         for (k, v) in &self.extra {
             obj.insert(k.clone(), v.clone());
+        }
+        if let Some(h) = &self.hint {
+            obj.entry("hint").or_insert_with(|| json!(h));
         }
         json!({ "error": Value::Object(obj) })
     }
@@ -204,9 +209,22 @@ mod tests {
             ("turn_cancelled", 1),
             ("waiting", 5),
             ("timeout", 124),
+            ("subagent_running", 5),
+            ("internal", 4),
+            ("io", 2),
         ] {
             assert_eq!(Error::new(code, "x").exit_code(), exit, "{code}");
         }
+    }
+
+    #[test]
+    fn retryable_errors_exit_four() {
+        for code in ["internal", "unavailable", "unreachable", "computer_unavailable"] {
+            let e = Error::new(code, "x");
+            assert!(e.retryable && e.exit_code() == 4, "{code}");
+        }
+        let e = Error::from_api(409, &json!({"error": {"code": "busy", "message": "m", "retryable": true}}));
+        assert_eq!(e.exit_code(), 4);
     }
 
     #[test]

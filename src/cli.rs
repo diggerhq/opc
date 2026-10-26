@@ -181,6 +181,9 @@ pub struct RunArgs {
     /// With -p: text, json or stream-json
     #[arg(long, value_enum, value_name = "FORMAT")]
     pub output_format: Option<Format>,
+    /// With -p: short for --output-format json
+    #[arg(long, conflicts_with = "output_format")]
+    pub json: bool,
     /// With stream-json: also print text deltas
     #[arg(long)]
     pub include_partial_messages: bool,
@@ -199,6 +202,12 @@ pub struct RunArgs {
     /// With -p: also wait for the background subagents the turn launched
     #[arg(long)]
     pub wait_subagents: bool,
+}
+
+impl RunArgs {
+    pub fn format(&self) -> Format {
+        if self.json { Format::Json } else { self.output_format.unwrap_or(Format::Text) }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -302,7 +311,7 @@ impl Command {
             Command::Log(a) => out(&a.output),
             Command::Send(a) => a.json,
             Command::Wait(a) => a.json,
-            Command::Watch(a) => a.output_format.is_some_and(|f| f != Format::Text),
+            Command::Watch(a) => a.json || a.output_format.is_some_and(|f| f != Format::Text),
             Command::Interrupt(a) => a.json,
             Command::Ask(a) => a.json(),
             Command::Subagents(a) => a.json(),
@@ -859,10 +868,16 @@ pub fn parse(args: Vec<String>) -> std::result::Result<Cli, clap::Error> {
 
 /// When a command cannot parse the rest, the words were probably a message.
 pub fn looks_like_message(args: &[String], err: &clap::Error) -> Option<String> {
-    use clap::error::ErrorKind::*;
-    if !matches!(err.kind(), UnknownArgument | TooManyValues | InvalidValue | InvalidSubcommand | ArgumentConflict | WrongNumberOfValues | MissingRequiredArgument | NoEquals | ValueValidation)
-    {
+    use clap::error::{ContextKind, ContextValue, ErrorKind::*};
+    // Only a stray bare word: a bad value, a conflict or a missing argument
+    // is a real usage error, and quoting would send it as a turn.
+    if !matches!(err.kind(), UnknownArgument | TooManyValues | InvalidSubcommand) {
         return None;
+    }
+    if let Some(ContextValue::String(bad)) = err.get(ContextKind::InvalidArg) {
+        if bad.starts_with('-') {
+            return None;
+        }
     }
     let (i, word) = first_word(args)?;
     if !COMMANDS.contains(&word) {
@@ -953,6 +968,15 @@ mod tests {
         let err = parse(args.clone()).unwrap_err();
         let msg = looks_like_message(&args, &err).expect("should be reported");
         assert_eq!(msg, "\"push the fix to main\" looks like a message. Quote it: opc \"push the fix to main\"");
+    }
+
+    #[test]
+    fn real_usage_errors_keep_their_message() {
+        for argv in [&["ls", "--limit", "1000"][..], &["send", "cs_0123456789abcdefgh", "--timeout", "5s", "hi"], &["pull", "app", "--dir", "x"]] {
+            let args: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+            let err = parse(args.clone()).unwrap_err();
+            assert_eq!(looks_like_message(&args, &err), None, "{argv:?}: {err}");
+        }
     }
 
     #[test]

@@ -4,10 +4,19 @@
 # Detects the platform, downloads the matching release from GitHub, checks
 # its SHA-256 against the release's SHA256SUMS and installs it to
 # ~/.local/bin/opc (or $OPC_INSTALL_DIR). Never uses sudo, never edits shell
-# startup files. OPC_VERSION=v0.1.0 pins a release.
+# startup files.
+#
+#   OPC_VERSION=v0.1.0-rc.3   install this release (pre-releases included)
+#   OPC_INSTALL_DIR=/opt/bin  install there instead of ~/.local/bin
+#
+# Without OPC_VERSION it installs the latest release, or the newest
+# pre-release while there is no full release yet.
 set -eu
 
 repo=diggerhq/opc
+# Test hooks (ci/install-test.sh); the defaults are GitHub's.
+gh=${OPC_GITHUB_URL:-https://github.com}
+api=${OPC_GITHUB_API:-https://api.github.com}
 dir=${OPC_INSTALL_DIR:-$HOME/.local/bin}
 version=${OPC_VERSION:-latest}
 
@@ -32,12 +41,17 @@ esac
 
 if [ "$version" = latest ]; then
   # The redirect of /releases/latest names the tag, with no API rate limit.
-  version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest" | sed 's#.*/##')
-  [ -n "$version" ] && [ "$version" != latest ] || fail "could not find the latest release"
+  # It is 404 while only pre-releases exist: then ask the API for the newest.
+  version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$gh/$repo/releases/latest" 2>/dev/null | sed 's#.*/##') || version=
+  if [ -z "$version" ] || [ "$version" = latest ]; then
+    version=$(curl -fsSL "$api/repos/$repo/releases?per_page=1" 2>/dev/null \
+      | tr "," "\n" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || version=
+  fi
+  [ -n "$version" ] || fail "could not find a release of opc; set OPC_VERSION (see https://github.com/$repo/releases)"
 fi
 
 name="opc-$version-$target"
-base="https://github.com/$repo/releases/download/$version"
+base="$gh/$repo/releases/download/$version"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 

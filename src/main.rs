@@ -70,7 +70,7 @@ fn err_style(c: &cli::Cli, tty: Ttys) -> ErrStyle {
         Some(cmd) => ErrStyle { json: cmd.wants_json(), stream: cmd.is_stream_json() },
         None => {
             let print = c.run.print || (!tty.interactive() && !c.message.is_empty()) || !tty.stdin;
-            let f = c.run.output_format.unwrap_or(Format::Text);
+            let f = c.run.format();
             ErrStyle { json: print && f != Format::Text, stream: print && f == Format::StreamJson }
         }
     }
@@ -92,6 +92,11 @@ fn parse_failure(args: &[String], e: clap::Error) -> i32 {
     };
     if json {
         eprintln!("{}", serde_json::to_string(&err.to_json()).unwrap_or_default());
+        // A reader of the stream always gets a last line.
+        let stream = args.windows(2).any(|w| w[0] == "--output-format" && w[1] == "stream-json") || args.iter().any(|a| a == "--output-format=stream-json");
+        if stream {
+            println!("{}", serde_json::to_string(&err.stream_result_line()).unwrap_or_default());
+        }
     } else {
         let rendered = e.render().to_string();
         if cli::looks_like_message(args, &e).is_some() {

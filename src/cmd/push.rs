@@ -289,21 +289,26 @@ async fn push(ctx: &Ctx, session_id: &str, dir: &Path, to: Option<&str>, key: Op
 
 async fn send_plan(ctx: &Ctx, session_id: &str, name: &str, plan: Arc<Plan>, key: Option<String>, meter: bool, started: Instant) -> Result<(Value, Duration)> {
     let key = key.unwrap_or_else(crate::ids::idempotency_key);
+    let budget_end = ctx.http.retry_budget_end();
     let mut attempt = 0u32;
     let body = loop {
         attempt += 1;
         let counters = Arc::new(Counters::default());
         let _meter = transfer::Meter::start(meter, "↑", format!("workspace/{name}"), counters.clone());
-        match upload_once(ctx, session_id, name, plan.clone(), &key, counters).await {
+        // Safe to repeat: the same key, and a failed upload changes nothing.
+        // `429`/`503` (a computer starting) are retried for the same budget
+        // as any other call; a dropped connection three times at most.
+        let e = match upload_once(ctx, session_id, name, plan.clone(), &key, counters).await {
             Ok(v) => break v,
-            // Safe to repeat: the same key, and a failed upload changes nothing.
-            Err(e) if attempt < 3 && (e.code == "unreachable" || matches!(e.status, Some(429 | 503))) => {
-                let wait = Duration::from_millis(e.retry_after_ms().unwrap_or(500 * u64::from(attempt)).min(30_000));
-                crate::log::info(&format!("push: {}; retrying in {}", e.message, crate::timing::ms(wait)));
-                tokio::time::sleep(wait).await;
-            }
-            Err(e) => return Err(map_error(e, name)),
-        }
+            Err(e) => e,
+        };
+        let wait = match ctx.http.retry_wait(&e, attempt, budget_end) {
+            Some(w) => w,
+            None if attempt < 3 && e.code == "unreachable" => Duration::from_millis(500 * u64::from(attempt)),
+            None => return Err(map_error(e, name)),
+        };
+        crate::log::info(&format!("push: {}; retrying in {}", e.message, crate::timing::ms(wait)));
+        tokio::time::sleep(wait).await;
     };
     let upload = body.get("upload").cloned().unwrap_or(Value::Null);
     let out = json!({

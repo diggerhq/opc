@@ -117,7 +117,13 @@ pub async fn run(ctx: &Ctx, a: JsonOnly) -> Result<i32> {
     }
 
     // 5. The connection.
-    let url = ctx.wire_url().await;
+    let url = match ctx.wire_url().await {
+        Ok(u) => u,
+        Err(e) => {
+            d.fail("connection", None, e);
+            return d.finish();
+        }
+    };
     let t = Instant::now();
     let (wire, mut rx) = ctx.open_wire(Vec::new(), false).await?;
     let opened = tokio::time::timeout(Duration::from_secs(20), async {

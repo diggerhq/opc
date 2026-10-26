@@ -286,7 +286,7 @@ pub async fn follow_turn(
 
 /// `opc -p`.
 async fn print(ctx: &mut Ctx, args: RunArgs, message: String) -> Result<i32> {
-    let format = args.output_format.unwrap_or(Format::Text);
+    let format = args.format();
     if args.include_partial_messages && format != Format::StreamJson {
         return Err(Error::usage("--include-partial-messages needs --output-format stream-json"));
     }

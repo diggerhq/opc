@@ -114,30 +114,37 @@ impl Ctx {
         if let Some(u) = crate::cache::wire_url(&self.config.api_url) {
             return Some(u);
         }
-        if self.config.api_url != DEFAULT_API_URL && self.http.has_key() {
-            return None;
-        }
-        Some(DEFAULT_WIRE_URL.to_string())
+        // Another environment's wire is named by its own `/me`.
+        (self.config.api_url == DEFAULT_API_URL).then(|| DEFAULT_WIRE_URL.to_string())
     }
 
-    pub async fn wire_url(&self) -> String {
+    /// The WebSocket URL. For an API other than production it comes from
+    /// `/me` (or `OPC_WIRE_URL`) only: a key is never shown to the production
+    /// wire on another environment's behalf.
+    pub async fn wire_url(&self) -> Result<String> {
         if let Some(u) = self.wire_url_now() {
-            return u;
+            return Ok(u);
         }
-        if self.config.api_url != DEFAULT_API_URL && self.http.has_key()
-            && let Ok(me) = self.http.get("/me", &[]).await
-                && let Some(u) = crate::wire::reconnect::wire_url_from_me(&me) {
-                    crate::cache::set_wire_url(&self.config.api_url, &u);
-                    return u;
-                }
-        DEFAULT_WIRE_URL.to_string()
+        let api = &self.config.api_url;
+        let me = self.http.get("/me", &[]).await.map_err(|e| {
+            let mut e2 = Error::new(&e.code, format!("cannot find the wire URL: GET {api}/me failed: {}", e.message));
+            e2.status = e.status;
+            e2.hint("set OPC_WIRE_URL to connect without it")
+        })?;
+        match crate::wire::reconnect::wire_url_from_me(&me) {
+            Some(u) => {
+                crate::cache::set_wire_url(api, &u);
+                Ok(u)
+            }
+            None => Err(Error::new("computer_not_set_up", format!("{api} gave no wire URL (computer.wireUrl in /me)")).hint("set OPC_WIRE_URL, or finish setup at the dashboard, under Computer")),
+        }
     }
 
     /// Options for a non-interactive command's connection: gives up after
     /// two minutes of continuous disconnection.
     pub async fn wire_options(&self, deltas: bool) -> Result<WireOptions> {
         Ok(WireOptions {
-            url: self.wire_url().await,
+            url: self.wire_url().await?,
             key: self.require_key()?.to_string(),
             deltas,
             resume: false,
@@ -180,19 +187,34 @@ pub fn read_stdin() -> Result<String> {
     Ok(s)
 }
 
-/// Whether stdin is a pipe or a file (something that will end), rather than
-/// a terminal or something inherited that may never close.
-pub fn stdin_has_data() -> bool {
+/// How long a message given as words waits for piped input to start.
+const STDIN_GRACE_MS: i32 = 200;
+
+/// Whether stdin has input to add to a message given as words: a regular
+/// file, or a pipe or socket that has data (or has closed) within
+/// [`STDIN_GRACE_MS`]. A pipe a parent left open and never writes to
+/// (`execFile`, `subprocess.run(stdin=PIPE)`, `docker run -i`) is ignored
+/// rather than read forever.
+pub fn stdin_has_input() -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::FileTypeExt;
         let Ok(meta) = std::fs::metadata("/dev/stdin") else { return false };
         let ft = meta.file_type();
-        ft.is_fifo() || ft.is_file() || ft.is_socket()
+        if ft.is_file() {
+            return true;
+        }
+        if !(ft.is_fifo() || ft.is_socket()) {
+            return false;
+        }
+        let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the duration of the call.
+        let n = unsafe { libc::poll(&mut fd, 1, STDIN_GRACE_MS) };
+        n > 0 && fd.revents & (libc::POLLIN | libc::POLLHUP) != 0
     }
     #[cfg(not(unix))]
     {
-        !std::io::stdin().is_terminal()
+        false
     }
 }
 
@@ -206,7 +228,7 @@ pub fn message_from(words: &[String], with_stdin: bool, tty: Ttys) -> Result<Opt
         return Ok(Some(s));
     }
     let arg = (!words.is_empty()).then(|| words.join(" "));
-    let piped = if with_stdin && !tty.stdin && (arg.is_none() || stdin_has_data()) { Some(read_stdin()?) } else { None };
+    let piped = if with_stdin && !tty.stdin && (arg.is_none() || stdin_has_input()) { Some(read_stdin()?) } else { None };
     Ok(match (arg, piped) {
         (Some(a), Some(p)) if !p.trim().is_empty() => Some(format!("{a}\n\n{p}")),
         (Some(a), _) => Some(a),

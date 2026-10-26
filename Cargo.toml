@@ -43,6 +43,7 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 zstd = "0.14"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 unicode-width = "0.2"
+libc = "0.2"
 
 [dev-dependencies]
 libc = "0.2"

@@ -212,7 +212,8 @@ enum Internal {
     Paged { session_id: String, result: Result<(Vec<Value>, u64, bool)> },
     /// Attach again after `session.detached {reason: unavailable}`.
     Reattach(String),
-    MeChecked(Result<Option<String>>),
+    /// `/me` after a dial error (`None`) or a 4001/4003 close (its reason).
+    MeChecked(Result<Option<String>>, Option<(u16, String)>),
 }
 
 struct Actor {
@@ -616,7 +617,14 @@ impl Actor {
                     self.send_attach(&id);
                 }
             }
-            Internal::MeChecked(result) => match result {
+            Internal::MeChecked(result, close) => match result {
+                // The key is fine but the wire refuses it this access: no
+                // retry will change that.
+                Ok(_) if close.as_ref().is_some_and(|(c, _)| *c == 4003) => {
+                    let reason = close.map(|(_, r)| r).filter(|r| !r.is_empty()).unwrap_or_else(|| "access_denied".into());
+                    self.emit(WireEvent::Fatal(Error::new("forbidden", format!("the wire refused this key access ({reason})")).with("reason", reason.as_str()).with("closeCode", 4003u64)));
+                    self.close();
+                }
                 Ok(url) => {
                     if let Some(u) = url {
                         if let Some(http) = &self.http {
@@ -655,7 +663,7 @@ impl Actor {
             let internal = self.internal_tx.clone();
             tokio::spawn(async move {
                 let r = http.get("/me", &[]).await.map(|me| wire_url_from_me(&me));
-                let _ = internal.send(Internal::MeChecked(r));
+                let _ = internal.send(Internal::MeChecked(r, None));
             });
             return;
         }
@@ -996,9 +1004,10 @@ impl Actor {
                 match self.http.clone() {
                     Some(http) => {
                         let internal = self.internal_tx.clone();
+                        let close = Some((code, reason.clone()));
                         tokio::spawn(async move {
                             let r = http.get("/me", &[]).await.map(|me| wire_url_from_me(&me));
-                            let _ = internal.send(Internal::MeChecked(r));
+                            let _ = internal.send(Internal::MeChecked(r, close));
                         });
                     }
                     None => {
