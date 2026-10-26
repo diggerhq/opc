@@ -43,7 +43,7 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
   | `ak_` | Ask | `usr_` | Person |
   | `ev_` | Event | `org_` | Organization |
   | `tm_` | Terminal | `req_` | Request |
-  | `key_` | API key | | |
+  | `key_` | API key | `sa_` | Subagent |
 
 - **Envelopes.** A single resource comes back as `{ "<type>": … }`, such as `{ "session": … }`, with anything else beside it: `seq`, `delivery`, `duplicate`. A list comes back as `{ "<types>": [ … ], "nextCursor" }`. `GET /me` is the one composite.
 - **Absent and null.** Every documented field is present. A field that does not apply is `null`. Optional request fields may be omitted.
@@ -74,6 +74,9 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
 | `GET` | [`/sessions/{id}/asks/{askId}`](/api/http/asks#get-an-ask) | One ask |
 | `POST` | [`/sessions/{id}/asks/{askId}/answer`](/api/http/asks#answer-an-ask) | Answers an approval or question |
 | `POST` | [`/sessions/{id}/asks/{askId}/dismiss`](/api/http/asks#dismiss-an-ask) | Closes an ask without an answer |
+| `GET` | [`/sessions/{id}/subagents`](/api/http/subagents#list-subagents) | Lists subagents |
+| `GET` | [`/sessions/{id}/subagents/{subagentId}`](/api/http/subagents#get-a-subagent) | One subagent, with its whole result |
+| `POST` | [`/sessions/{id}/subagents/{subagentId}/stop`](/api/http/subagents#stop-a-subagent) | Stops a subagent |
 | `POST` | [`/sessions/{id}/interrupt`](/api/http/control#interrupt) | Stops the running turn and every queued one |
 | `POST` | [`/sessions/{id}/compact`](/api/http/control#compact) | Summarizes the conversation to free context |
 | `POST` | [`/sessions/{id}/suspend`](/api/http/control#suspend) | Stops the agent process now |

@@ -81,11 +81,10 @@ pub async fn dial(url: &str, key: &str, generation: u64, frames: mpsc::Unbounded
     let (ws, response) = tokio_tungstenite::client_async_with_config(req, stream, Some(config))
         .await
         .map_err(handshake_error)?;
-    if let Some(p) = response.headers().get("sec-websocket-protocol").and_then(|v| v.to_str().ok()) {
-        if p != PROTOCOL {
+    if let Some(p) = response.headers().get("sec-websocket-protocol").and_then(|v| v.to_str().ok())
+        && p != PROTOCOL {
             return Err(Error::new("upgrade_required", format!("the server chose protocol {p}; this opc speaks {PROTOCOL}")));
         }
-    }
     let took = started.elapsed();
     let (mut sink, mut source) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();

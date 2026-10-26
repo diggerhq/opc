@@ -75,7 +75,11 @@ pub struct Turn {
     pub session_id: String,
     pub status: String,
     pub if_busy: Option<String>,
-    pub input: String,
+    /// Null for a turn the agent started itself (`trigger: "subagent"`).
+    pub input: Option<String>,
+    /// `message`, or `subagent` (an open enum).
+    pub trigger: Option<String>,
+    pub subagent_id: Option<String>,
     pub author: Option<Actor>,
     pub steering: Vec<Value>,
     pub created_at: Option<String>,
@@ -195,6 +199,56 @@ impl Ask {
     }
 }
 
+/// A subagent the session's agent launched (`sa_…`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Subagent {
+    pub id: String,
+    pub session_id: String,
+    pub turn_id: Option<String>,
+    pub call_id: Option<String>,
+    pub name: String,
+    pub agent_type: Option<String>,
+    pub background: bool,
+    pub status: String,
+    pub activity: Option<String>,
+    pub tool_calls: u64,
+    pub tokens: u64,
+    pub created_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub result: Option<String>,
+    pub result_truncated: Option<bool>,
+    pub error: Option<Value>,
+    pub stopped_by: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl Subagent {
+    pub fn is_running(&self) -> bool {
+        self.status == "running"
+    }
+
+    /// Folds a `subagent.progress` delta's data in.
+    pub fn apply_progress(&mut self, data: &Value) {
+        if let Some(a) = data.get("activity") {
+            self.activity = a.as_str().map(str::to_string);
+        }
+        if let Some(n) = data.get("toolCalls").and_then(Value::as_u64) {
+            self.tool_calls = n;
+        }
+        if let Some(n) = data.get("tokens").and_then(Value::as_u64) {
+            self.tokens = n;
+        }
+    }
+
+    /// `{id, name, status, background}`, as the Result lists it.
+    pub fn brief(&self) -> Value {
+        serde_json::json!({"id": self.id, "name": self.name, "status": self.status, "background": self.background})
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Session {
@@ -209,6 +263,8 @@ pub struct Session {
     pub active_turn_id: Option<String>,
     pub queued: Vec<Turn>,
     pub asks: Vec<Ask>,
+    /// The running subagents, oldest first.
+    pub subagents: Vec<Subagent>,
     pub last_turn: Option<TurnSummary>,
     pub last_text: Option<String>,
     pub context: Option<Context>,

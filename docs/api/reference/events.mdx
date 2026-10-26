@@ -16,7 +16,7 @@ A recorded event:
   "turnId": "tn_4m8q2x7c1v9b",
   "type": "tool.started",
   "actor": null,
-  "data": { "toolName": "Bash", "callId": "toolu_01AbC", "parentCallId": null, "title": "npm test -- segment", "input": { "command": "npm test -- segment" }, "inputTruncated": false }
+  "data": { "toolName": "Bash", "callId": "toolu_01AbC", "parentCallId": null, "subagentId": null, "title": "npm test -- segment", "input": { "command": "npm test -- segment" }, "inputTruncated": false }
 }
 ```
 
@@ -84,13 +84,14 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 
 | Type | Recorded | When | `data` |
 | --- | --- | --- | --- |
-| `tool.started` | Yes | The agent called a tool | `toolName`, `callId`, `parentCallId`, `title`, `input`, `inputTruncated` |
+| `tool.started` | Yes | The agent called a tool | `toolName`, `callId`, `parentCallId`, `subagentId`, `title`, `input`, `inputTruncated` |
 | `tool.delta` | No | A running tool produced output, such as a command's terminal output | `callId`, `text` |
-| `tool.completed` | Yes | The tool returned | `toolName`, `callId`, `title`, `output`, `outputTruncated`, `fileChanges`, `durationMs` |
-| `tool.failed` | Yes | The tool returned an error, or its turn ended before it did | `toolName`, `callId`, `title`, `message`, `settledBy` |
+| `tool.completed` | Yes | The tool returned | `toolName`, `callId`, `subagentId`, `title`, `output`, `outputTruncated`, `fileChanges`, `durationMs` |
+| `tool.failed` | Yes | The tool returned an error, or its turn ended before it did | `toolName`, `callId`, `subagentId`, `title`, `message`, `settledBy` |
 
 - `toolName` is the tool's name, such as `Bash`, `Edit`, `Read` or `mcp__linear__create_issue`. `title` is one line for display, such as the command or the file.
-- `parentCallId` is `null`, or the `callId` of the subagent call this call was made inside. Text and reasoning events carry it too, so a client can nest a subagent's work under its call.
+- `subagentId` is `null`, or the [subagent](/api/reference/objects#subagent) the call was made inside. `parentCallId` is `null`, or the `callId` of the call that started that subagent. Nest a subagent's calls by `subagentId`; it is set even when the subagent's `callId` is not known.
+- Text and reasoning events carry `parentCallId` too, but with Claude Code it is always `null`: Claude Code does not stream a subagent's text or reasoning, only its tool calls. A subagent's final answer is its `result`.
 - `fileChanges` lists the files the call changed, as `[{ "path": "src/a.ts", "status": "modified", "added": 12, "removed": 3 }]`, with `status` one of `added`, `modified` or `deleted`. It is the same for every harness and tool that edits files, and `null` for a call that changed none. Changes a command made, such as `Bash` running a formatter, are not tracked.
 - `input` and `output` are JSON values, never JSON text. Each is cut at 64 KiB. `inputTruncated` and `outputTruncated` are `true` when it was, else `false`.
 - `callId` is the harness's id for the call, such as `toolu_01AbC`. Treat it as an opaque string.
@@ -105,6 +106,16 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 | `ask.closed` | It was answered, dismissed, interrupted or expired | `ask`: the Ask as it closed. The `actor` is who answered or dismissed it. |
 
 A secret request's `answer` names the scope the secret was set in, never its value.
+
+## Subagents
+
+| Type | Recorded | When | `data` |
+| --- | --- | --- | --- |
+| `subagent.started` | Yes | The agent started a [subagent](/api/reference/objects#subagent) | `subagent`: the Subagent |
+| `subagent.progress` | No | It did more work | `subagentId`, `activity`, `toolCalls`, `tokens` |
+| `subagent.ended` | Yes | It ended: `completed`, `failed` or `stopped` | `subagent`: the Subagent as it ended, with `result` and `error`. The `actor` is who stopped it, if someone did. |
+
+A subagent's events carry the `turnId` of the turn that started it. For a background subagent they keep arriving after that turn ended.
 
 ## Model
 
@@ -144,6 +155,6 @@ For one turn, recorded events come in this order:
 3. `tool.failed` with `settledBy` for any call still open
 4. Exactly one of `turn.completed`, `turn.failed` or `turn.cancelled`, last
 
-Nothing is recorded in a turn after its ending event. Events of different turns do not interleave, except `message.received` and `turn.queued` for messages queued while another turn runs.
+Nothing is recorded in a turn after its ending event, except the events of its background subagents: their tool calls and `subagent.ended`. Events of different turns do not interleave, except `message.received` and `turn.queued` for messages queued while another turn runs.
 
 If the computer running a turn is lost, the server records the turn's end for it: `tool.failed` with `settledBy` for each open call, `turn.failed` with `runtime_lost`, then `runtime.suspended` with `reason: "lost"`. These start a new `logEpoch`. See [Client libraries](/api/reference/clients#writing-your-own).

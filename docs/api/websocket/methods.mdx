@@ -18,6 +18,8 @@ A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the 
 | `turns.get` | [`GET /sessions/{id}/turns/{turnId}`](/api/http/turns#get-a-turn), with `turnId` |
 | `asks.list`, `asks.get` | [`GET /sessions/{id}/asks`](/api/http/asks#list-asks) and [`GET /sessions/{id}/asks/{askId}`](/api/http/asks#get-an-ask), with `askId` |
 | `asks.answer`, `asks.dismiss` | [Asks](/api/http/asks), with `askId` |
+| `subagents.list`, `subagents.get` | [`GET /sessions/{id}/subagents`](/api/http/subagents#list-subagents) and [`GET /sessions/{id}/subagents/{subagentId}`](/api/http/subagents#get-a-subagent), with `subagentId` |
+| `subagents.stop` | [Stop a subagent](/api/http/subagents#stop-a-subagent), with `subagentId` |
 | `events.list` | [`GET /sessions/{id}/events`](/api/http/events) |
 | [`terminals.open`, `terminals.resize`, `terminals.eof`, `terminals.close`](/api/websocket/terminals) | none |
 | `ping` | none |

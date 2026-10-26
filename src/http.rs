@@ -377,11 +377,10 @@ fn note_latest(headers: &HeaderMap) {
 /// Maps an error response, filling in what the API leaves implicit.
 pub fn api_error(status: u16, body: &Value, headers: &HeaderMap) -> Error {
     let mut err = Error::from_api(status, body);
-    if err.retry_after_ms().is_none() {
-        if let Some(s) = headers.get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok()) {
+    if err.retry_after_ms().is_none()
+        && let Some(s) = headers.get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok()) {
             err.extra.insert("retryAfterMs".into(), Value::from((s * 1000.0) as u64));
         }
-    }
     match err.code.as_str() {
         "upgrade_required" => {
             let min = err.extra.get("minVersion").and_then(Value::as_str).unwrap_or("a newer version").to_string();

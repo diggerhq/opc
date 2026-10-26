@@ -28,10 +28,12 @@ If `logEpoch` differs from the one you stored, discard what you applied at or af
 
 ### Deltas are not in the log
 
-While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta`, sent only over a WebSocket that asked for them, as `delta` notifications rather than `event`. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew.
+While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta`, and a subagent's progress as `subagent.progress`, sent only over a WebSocket that asked for them, as `delta` notifications rather than `event`. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew.
 
 - Text and reasoning deltas are tied to their block by `blockId`, tool output by `callId`. Both are unique in the session, not only in the turn.
 - A delta never arrives after its block's completed event. Ignore any delta for a `blockId` or `callId` you have already seen complete.
+
+`subagent.progress` has no completed event: its latest values are folded into the [Subagent](/api/reference/objects#subagent) on every read.
 
 A client that misses deltas, because it connected late, reconnected or was too slow, loses nothing but the preview. See [Flow control](/api/websocket/flow-control).
 
@@ -46,7 +48,7 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | `waiting` | `running` | Every open ask closed |
 | `waiting` | `idle` | The asks were open for 24 hours and expired, and the turn was cancelled. See [Asks and suspension](#asks-and-suspension). |
 | `running` | `idle` | The last turn ended and nothing is queued |
-| `idle` | `suspended` | Two hours without activity, or a [suspend](/api/http/control#suspend) |
+| `idle` | `suspended` | Two hours without activity and no subagent running, or a [suspend](/api/http/control#suspend) |
 | `suspended` | `starting` | A message, an answer, or a [resume](/api/http/control#resume) |
 
 | Status | The agent process | A message sent now |
@@ -103,6 +105,22 @@ A session with an open ask is not suspended for being idle. It keeps its agent p
 A message sent while an ask is open is held, not steered: the agent cannot read anything until the ask closes. The send response has `delivery: "held"`, and its `turn` is the running turn. When the last open ask closes, held messages are delivered into the turn in the order they arrived, right after the answer, each recorded as `message.delivered` with `as: "steering"`. If the turn ends first, for example because the answer was a denial the agent stopped on, the held messages start a new turn, with a new turn id.
 
 A message sent with `interrupt` is not held. It interrupts the turn, which closes the ask, and runs.
+
+## Subagents
+
+A **subagent** is an agent the session's agent starts to do part of a turn's work. Each is a [Subagent](/api/reference/objects#subagent), with an `sa_` id, recorded as `subagent.started` and `subagent.ended`. The running ones are in the session's `subagents`.
+
+- A **foreground** subagent runs inside its turn. The turn waits for it, and it ends before the turn does.
+- A **background** subagent runs apart from its turn. The turn can complete while it runs, and its events keep arriving under that turn's `turnId` until it ends. The session's `status` describes turns only: an `idle` session with a non-empty `subagents` has background work going on.
+
+| What happens | Foreground subagents | Background subagents |
+| --- | --- | --- |
+| An [interrupt](/api/http/control#interrupt) | Stopped, with the turn | Keep running |
+| A [stop](/api/http/subagents#stop-a-subagent) | Stopped | Stopped |
+| An explicit [suspend](/api/http/control#suspend) | Stopped | Stopped |
+| Two hours without activity | | The session is not suspended while one runs |
+
+A subagent ends once, as `completed`, `failed` or `stopped`. Read them with [Subagents](/api/http/subagents).
 
 ## Who did what
 

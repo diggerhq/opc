@@ -72,6 +72,12 @@ pub fn is_ask_id(s: &str) -> bool {
     is_id(s, "ak_", 12)
 }
 
+/// A subagent id (`sa_…`); the length is not checked, the spec does not
+/// fix it.
+pub fn looks_like_subagent(s: &str) -> bool {
+    s.starts_with("sa_") && s.len() > 3
+}
+
 /// Lenient forms used when an argument names a turn: tolerate any length so a
 /// test server with other id lengths still works.
 pub fn looks_like_turn(s: &str) -> bool {

@@ -1,6 +1,6 @@
 ---
 title: "Objects"
-description: "Session, Turn, Ask, Secret, Result, Actor and Capabilities: the shapes every response and event uses."
+description: "Session, Turn, Ask, Subagent, Secret, Result, Actor and Capabilities: the shapes every response and event uses."
 ---
 
 The same objects appear in HTTP responses, WebSocket results and event data, byte for byte. Field names are camelCase. Times are ISO 8601 strings in UTC with milliseconds. Fields that do not apply are `null`, not absent: every field listed here is always present.
@@ -24,6 +24,7 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
   "activeTurnId": "tn_4m8q2x7c1v9b",
   "queued": [{ "id": "tn_9x2c7v1b4m8q", "status": "queued", "input": "then update the changelog", "…": "Turn" }],
   "asks": [],
+  "subagents": [],
   "lastTurn": { "id": "tn_1b4m8q9x2c7v", "status": "completed", "endedAt": "2026-10-26T09:12:44.120Z", "text": "Done. The PR is #482.", "error": null, "reason": null, "forced": null },
   "lastText": "I'll start by running the test a few times",
   "context": { "usedTokens": 41250, "windowTokens": 200000 },
@@ -52,6 +53,7 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
 | `activeTurnId` | string or null | The running turn |
 | `queued` | array of [Turn](#turn) | Turns waiting to run, in the order they will run |
 | `asks` | array of [Ask](#ask) | Open asks, oldest first. Empty unless `status` is `waiting`. |
+| `subagents` | array of [Subagent](#subagent) | Running subagents, oldest first. A session that is `idle` with subagents here has background work going on. |
 | `lastTurn` | [TurnSummary](#turnsummary) or null | The most recent turn that ended |
 | `lastText` | string or null | The first 200 characters of the last message the agent wrote, for lists |
 | `context` | object | `usedTokens` of `windowTokens` in the model's context window, as of the last model call's [`usage.recorded`](/api/reference/events#model) |
@@ -90,6 +92,8 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
   "sessionId": "cs_7f3a9k2m4q8r1t6v",
   "status": "running",
   "ifBusy": "queue",
+  "trigger": "message",
+  "subagentId": null,
   "input": "fix the flaky test in segment.test.ts and open a PR",
   "author": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "via": "opc", "client": "opc/0.1.0" },
   "steering": [],
@@ -110,7 +114,9 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
 | `sessionId` | string | The session |
 | `status` | string | `queued`, `running`, `cancelling`, `completed`, `failed` or `cancelled`. `cancelling` is a running turn that has been [interrupted](/api/http/control#interrupt) and has not stopped yet. |
 | `ifBusy` | string | How it was sent: `queue`, `steer` or `interrupt` |
-| `input` | string | The message, exactly as sent |
+| `trigger` | string | What started it: `message`, a message someone sent. `subagent` is reserved for a turn the agent starts on its own when a background subagent ends. |
+| `subagentId` | string or null | The subagent, when `trigger` is `subagent` |
+| `input` | string or null | The message, exactly as sent. `null` when `trigger` is not `message`. |
 | `author` | [Actor](#actor) | Who sent it |
 | `steering` | array | Messages steered into this turn while it ran: `{ input, author, createdAt }` |
 | `createdAt` | string | When its message was accepted |
@@ -225,6 +231,58 @@ Answer: `{ "answers": [{ "questionId": "q1", "choices": ["Make the test wait for
 
 A secret request is answered by [setting the secret](/api/http/secrets), never through the ask: the value must not enter the session's history. Setting a secret with this `name` that reaches this session answers the ask, and `answer` becomes `{ "scope" }`, the scope it was set in, such as `{ "scope": "session" }`.
 
+## Subagent
+
+A subagent is an agent the session's agent starts to do part of the work, such as Claude Code's `Task` tool. A foreground subagent runs inside its turn; the turn waits for it. A background subagent can outlive the turn that started it.
+
+```json
+{
+  "id": "sa_3q8r1t6v7f3a",
+  "sessionId": "cs_7f3a9k2m4q8r1t6v",
+  "turnId": "tn_4m8q2x7c1v9b",
+  "callId": "toolu_01XyZ",
+  "name": "auth flow",
+  "agentType": "Explore",
+  "background": false,
+  "status": "running",
+  "activity": "reading src/auth/session.ts",
+  "toolCalls": 14,
+  "tokens": 38120,
+  "createdAt": "2026-10-26T09:05:11.002Z",
+  "endedAt": null,
+  "durationMs": null,
+  "result": null,
+  "resultTruncated": false,
+  "error": null,
+  "stoppedBy": null
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | `sa_` followed by 12 characters of lowercase Crockford base32 |
+| `sessionId` | string | The session |
+| `turnId` | string | The turn that started it. Its events carry this `turnId`, also after that turn ended. |
+| `callId` | string or null | The tool call that started it, or `null` when the agent does not say |
+| `name` | string | Its description, as the agent gave it |
+| `agentType` | string or null | The kind of subagent, such as `Explore`, when the agent says |
+| `background` | boolean | `true` when it runs in the background, apart from its turn |
+| `status` | string | `running`, `completed`, `failed` or `stopped` |
+| `activity` | string or null | What it is doing now, while `running` |
+| `toolCalls` | integer | Tool calls it has made |
+| `tokens` | integer | Tokens it has used |
+| `createdAt` | string | |
+| `endedAt` | string or null | |
+| `durationMs` | integer or null | From start to end, once ended |
+| `result` | string or null | Its final answer, once ended. Up to 8 KiB in lists and events; [get the subagent](/api/http/subagents#get-a-subagent) for the full text. |
+| `resultTruncated` | boolean | `true` when `result` was cut to 8 KiB |
+| `error` | object or null | `{ code, message }` when `failed` |
+| `stoppedBy` | [Actor](#actor) or null | Who stopped it, when someone [stopped it](/api/http/subagents#stop-a-subagent). `null` when an interrupt or suspend stopped it. |
+
+`activity`, `toolCalls` and `tokens` come from [`subagent.progress`](/api/reference/events#subagents), which is not recorded. Every read returns their latest values.
+
+An [interrupt](/api/http/control#interrupt) stops the turn's foreground subagents. Background subagents keep running until they end or someone stops them. An explicit [suspend](/api/http/control#suspend) stops every subagent.
+
 ## Secret
 
 A secret's name and where it applies. Its value is never returned.
@@ -267,6 +325,7 @@ The outcome of one turn, as `opc -p`, `opc wait` and `opc watch` print it. It is
   "error": null,
   "reason": null,
   "ask": null,
+  "subagents": [{ "id": "sa_9b4m8q2x7c1v", "name": "update the docs", "status": "running", "background": true }],
   "url": "https://app.opencomputer.dev/computer/sessions/cs_7f3a9k2m4q8r1t6v",
   "durationMs": 48211,
   "usage": { "inputTokens": 81233, "outputTokens": 2210, "reasoningTokens": 940, "cachedTokens": 76002, "cacheWriteTokens": 5120, "costUsd": "0.41" },
@@ -285,6 +344,7 @@ The outcome of one turn, as `opc -p`, `opc wait` and `opc watch` print it. It is
 | `error` | object or null | A [turn failure](/api/reference/errors#turn-failures) when `failed` |
 | `reason` | string or null | The turn's `reason` when `cancelled` |
 | `ask` | [Ask](#ask) or null | The open ask, when `waiting` |
+| `subagents` | array | The subagents the turn started: `{ id, name, status, background }`. A turn completes while its background subagents run; they are listed as `running`, unless the command waited for them with `--wait-subagents`. |
 | `url` | string | The session's `urls.dashboard` |
 | `durationMs` | integer | From the message being accepted to the turn ending, or to the ask opening |
 | `usage` | object or null | Exactly the turn's `usage` |
@@ -328,6 +388,6 @@ A session's capabilities are not on the Session object. Read them with [`GET /se
 | --- | --- |
 | `models` | Models this session may use, as your organization allows. `efforts` lists the levels each accepts. |
 | `modes` | Permission modes this session may use. `bypassPermissions` appears only when your organization allows it. |
-| `features` | What this session supports. A client hides what is `false`. `steer`: messages mid-turn; `compact`; `terminal`: [terminals](/api/websocket/terminals); `workspace`: files; `reasoning`: the model's reasoning is streamed; `subagents`: `parentCallId` can be set. |
+| `features` | What this session supports. A client hides what is `false`. `steer`: messages mid-turn; `compact`; `terminal`: [terminals](/api/websocket/terminals); `workspace`: files; `reasoning`: the model's reasoning is streamed; `subagents`: the agent reports [subagents](#subagent), and tool events inside one carry `parentCallId` and `subagentId`. |
 
 Capabilities are per session, not per release: check them instead of the API version. They change only when your organization's settings change.

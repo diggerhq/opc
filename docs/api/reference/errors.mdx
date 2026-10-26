@@ -39,10 +39,11 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `403` | `admin_required` | | Only admins can do this |
 | `404` | `not_found` | | No such route |
 | `404` | `session_not_found` | | No such session, or you cannot see it |
-| `404` | `turn_not_found`, `ask_not_found`, `path_not_found`, `secret_not_found` | | |
+| `404` | `turn_not_found`, `ask_not_found`, `subagent_not_found`, `path_not_found`, `secret_not_found` | | |
 | `409` | `id_conflict` | | The session `id` chosen on create is taken by another session |
 | `409` | `idempotency_conflict` | | The key was used for a different request |
 | `409` | `ask_closed` | `ask` | The ask already closed. `ask` shows how and by whom. |
+| `409` | `subagent_ended` | `subagent` | The subagent already ended. `subagent` shows how. |
 | `409` | `session_busy` | | A turn is running, and the action needs none |
 | `409` | `turn_not_cancellable` | | Only a `queued` turn can be cancelled |
 | `409` | `queue_full` | `retryAfterMs` | 20 turns are already queued |

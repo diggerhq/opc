@@ -474,8 +474,8 @@ impl Actor {
 
     fn on_timer(&mut self) {
         let now = Instant::now();
-        if let (Some(since), Some(limit)) = (self.down_since, self.opts.give_up) {
-            if now >= since + limit {
+        if let (Some(since), Some(limit)) = (self.down_since, self.opts.give_up)
+            && now >= since + limit {
                 self.emit(WireEvent::Fatal(Error::unreachable(format!(
                     "cannot reach your computer (disconnected for {}s)",
                     limit.as_secs()
@@ -483,13 +483,12 @@ impl Actor {
                 self.close();
                 return;
             }
-        }
         if self.retry_at.is_some_and(|t| now >= t) {
             self.retry_at = None;
             self.dial();
         }
-        if let Some((id, t)) = self.probe {
-            if now >= t {
+        if let Some((id, t)) = self.probe
+            && now >= t {
                 self.probe = None;
                 self.pending.remove(&id);
                 log::info("wire: the connection stopped answering; reconnecting");
@@ -499,7 +498,6 @@ impl Actor {
                 self.down_since.get_or_insert(now);
                 self.dial_now();
             }
-        }
         if self.conn.as_ref().and_then(|c| c.expires_at).is_some_and(|t| now >= t) {
             if let Some(c) = self.conn.as_mut() {
                 c.expires_at = None;
@@ -603,6 +601,9 @@ impl Actor {
             Internal::MeChecked(result) => match result {
                 Ok(url) => {
                     if let Some(u) = url {
+                        if let Some(http) = &self.http {
+                            crate::cache::set_wire_url(http.api_url(), &u);
+                        }
                         self.url = u;
                     }
                     self.schedule_retry(None);
@@ -706,11 +707,10 @@ impl Actor {
     }
 
     fn on_json(&mut self, v: Value) {
-        if let Some(id) = v.get("id").and_then(Value::as_u64) {
-            if v.get("method").is_none() {
+        if let Some(id) = v.get("id").and_then(Value::as_u64)
+            && v.get("method").is_none() {
                 return self.on_response(id, v);
             }
-        }
         let method = v.get("method").and_then(Value::as_str).unwrap_or("");
         let params = v.get("params").cloned().unwrap_or(Value::Null);
         match method {
@@ -789,11 +789,10 @@ impl Actor {
             }
         }
         for id in failed {
-            if let Some(p) = self.pending.remove(&id) {
-                if let Purpose::User(reply) = p.purpose {
+            if let Some(p) = self.pending.remove(&id)
+                && let Purpose::User(reply) = p.purpose {
                     let _ = reply.send(Err(Error::new("too_large", "the message was too large for the connection")));
                 }
-            }
         }
         self.probe = None;
         for m in resend {
@@ -874,8 +873,8 @@ impl Actor {
         };
         let known_epoch = s.epoch.or(s.want.log_epoch);
         s.epoch = Some(info.log_epoch);
-        if let (Some(old), Some(c)) = (known_epoch, s.cursor) {
-            if old != info.log_epoch && c >= info.epoch_start_seq {
+        if let (Some(old), Some(c)) = (known_epoch, s.cursor)
+            && old != info.log_epoch && c >= info.epoch_start_seq {
                 let new_cursor = info.epoch_start_seq.saturating_sub(1);
                 s.cursor = Some(new_cursor);
                 let id = id.to_string();
@@ -884,18 +883,16 @@ impl Actor {
                 self.send_attach(&id);
                 return;
             }
-        }
         if s.cursor.is_none() && s.want.after.is_none() && s.want.tail_turns.is_none() {
             s.cursor = Some(info.session.last_seq);
         }
-        if let Some(c) = s.cursor {
-            if info.session.last_seq > c + MAX_REPLAY {
+        if let Some(c) = s.cursor
+            && info.session.last_seq > c + MAX_REPLAY {
                 let id = id.to_string();
                 self.emit(WireEvent::Attached { session_id: id.clone(), result: Ok(Box::new(info)) });
                 self.start_paging(&id);
                 return;
             }
-        }
         self.emit(WireEvent::Attached { session_id: id.to_string(), result: Ok(Box::new(info)) });
     }
 

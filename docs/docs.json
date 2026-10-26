@@ -70,6 +70,7 @@
               "api/http/sessions",
               "api/http/turns",
               "api/http/asks",
+              "api/http/subagents",
               "api/http/control",
               "api/http/events",
               "api/http/workspace",
