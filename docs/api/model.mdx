@@ -52,7 +52,7 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | Status | The agent process | A message sent now |
 | --- | --- | --- |
 | `starting` | Starting, or resuming from `suspended` | Is recorded at once, then runs |
-| `running` | Working on a turn | Queues, steers or interrupts, by [mode](/api/http/turns#modes) |
+| `running` | Working on a turn | Queues, steers or interrupts, by [`ifBusy`](/api/http/turns#if-a-turn-is-running) |
 | `waiting` | Blocked on an open ask. Kept running while the ask is open, for up to 24 hours. | Is [held](#messages-while-an-ask-is-open) until the ask closes, unless sent with `interrupt` |
 | `idle` | Ready | Runs at once |
 | `suspended` | Stopped. Its memory is freed, its workspace and conversation are kept. | Is recorded at once, resumes the session, then runs |

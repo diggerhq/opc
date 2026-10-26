@@ -89,7 +89,7 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
   "id": "tn_4m8q2x7c1v9b",
   "sessionId": "cs_7f3a9k2m4q8r1t6v",
   "status": "running",
-  "mode": "queue",
+  "ifBusy": "queue",
   "input": "fix the flaky test in segment.test.ts and open a PR",
   "author": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "via": "opc", "client": "opc/0.1.0" },
   "steering": [],
@@ -109,7 +109,7 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
 | `id` | string | `tn_` followed by 12 characters of lowercase Crockford base32 |
 | `sessionId` | string | The session |
 | `status` | string | `queued`, `running`, `cancelling`, `completed`, `failed` or `cancelled`. `cancelling` is a running turn that has been [interrupted](/api/http/control#interrupt) and has not stopped yet. |
-| `mode` | string | How it was sent: `queue`, `steer` or `interrupt` |
+| `ifBusy` | string | How it was sent: `queue`, `steer` or `interrupt` |
 | `input` | string | The message, exactly as sent |
 | `author` | [Actor](#actor) | Who sent it |
 | `steering` | array | Messages steered into this turn while it ran: `{ input, author, createdAt }` |

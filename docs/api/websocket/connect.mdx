@@ -87,7 +87,7 @@ To attach later on an open connection, call [`sessions.attach`](/api/websocket/m
 Every message is [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one per text frame. Batches are not supported.
 
 ```json
-{ "jsonrpc": "2.0", "id": 7, "method": "turns.send", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "input": "also add a regression test", "mode": "steer", "idempotencyKey": "5b0d6c1e-2f7a-4a8e-9d3c-1e2f3a4b5c6d" } }
+{ "jsonrpc": "2.0", "id": 7, "method": "turns.send", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "input": "also add a regression test", "ifBusy": "steer", "idempotencyKey": "5b0d6c1e-2f7a-4a8e-9d3c-1e2f3a4b5c6d" } }
 ```
 
 ```json

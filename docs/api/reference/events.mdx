@@ -56,7 +56,7 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 
 | Type | When | `data` |
 | --- | --- | --- |
-| `message.received` | A message was accepted. Recorded before anything runs. | `input`, `mode`, `delivery`, `interruptedTurnIds`: the turns this message interrupted, empty unless it was sent with `interrupt` |
+| `message.received` | A message was accepted. Recorded before anything runs. | `input`, `ifBusy`, `delivery`, `interruptedTurnIds`: the turns this message interrupted, empty unless it was sent with `interrupt` |
 | `message.held` | The message waits for open asks to close | `askIds` |
 | `message.delivered` | A held message reached the agent | `as`: `steering` |
 | `turn.queued` | A new turn waits behind others | `position`: 1 for next |

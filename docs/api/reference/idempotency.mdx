@@ -36,7 +36,7 @@ Other writes need no key. Updating settings, cancelling a queued turn, suspendin
 - **A key is 1 to 255 printable ASCII characters.** A UUID is a good key.
 - **Keys are per member and per operation.** The same key from two members, or for two operations, is two keys. A route and its WebSocket method, such as `POST /sessions/{id}/turns` and `turns.send`, are one operation.
 - **Keys are kept for 24 hours.** After that, a repeat is a new request.
-- **A key identifies the request, not just the call.** A repeat must have the same body: the same `input`, whitespace included, and the same `mode`, where an omitted `mode` equals `queue`. A different body with a used key gets `409 idempotency_conflict` and does nothing.
+- **A key identifies the request, not just the call.** A repeat must have the same body: the same `input`, whitespace included, and the same `ifBusy`, where an omitted `ifBusy` equals `queue`. A different body with a used key gets `409 idempotency_conflict` and does nothing.
 - **A repeat gets the current state.** A repeated send returns the turn's status now, which may have moved on to `completed`.
 - **Concurrent repeats are safe.** If a repeat arrives while the first is still being handled, it waits for that result.
 - **Keys hold across restarts.** A session's keys are checked by the session's writer on the computer and recorded in its log, so a retry is recognized even after the computer restarts or the session resumes. Keys for `POST /sessions` are checked before the session exists.

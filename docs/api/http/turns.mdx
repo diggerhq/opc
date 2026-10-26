@@ -12,19 +12,19 @@ POST /sessions/{id}/turns
 ```bash
 curl -s "$API/sessions/cs_7f3a9k2m4q8r1t6v/turns" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
   -H "content-type: application/json" -H "idempotency-key: 0b8e4d1a-…" \
-  -d '{ "input": "also add a regression test", "mode": "steer" }'
+  -d '{ "input": "also add a regression test", "ifBusy": "steer" }'
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `input` | string | The message. Required, not empty, up to 100,000 characters. Sent exactly as given: whitespace counts. |
-| `mode` | string, optional | What to do if a turn is running: `queue` (default), `steer` or `interrupt`. See [Modes](#modes). |
+| `ifBusy` | string, optional | What to do if a turn is running: `queue` (default), `steer` or `interrupt`. See [If a turn is running](#if-a-turn-is-running). |
 
 The response is `202`, or `200` for a repeated `Idempotency-Key`:
 
 ```json
 {
-  "turn": { "id": "tn_9x2c7v1b4m8q", "status": "queued", "mode": "queue", "input": "also add a regression test", "…": "…" },
+  "turn": { "id": "tn_9x2c7v1b4m8q", "status": "queued", "ifBusy": "queue", "input": "also add a regression test", "…": "…" },
   "delivery": "queued",
   "duplicate": false,
   "seq": 1191
@@ -51,9 +51,9 @@ A steered or held message belongs to the running turn only once the agent reads 
 
 The response returns once the message is in the log. It does not wait for the agent. Follow the turn in the [events](/api/reference/events), or [wait for it](#get-a-turn).
 
-### Modes
+### If a turn is running
 
-| `mode` | Nothing running | A turn running | An ask open |
+| `ifBusy` | Nothing running | A turn running | An ask open |
 | --- | --- | --- | --- |
 | `queue` | `started` | `queued` | `queued` |
 | `steer` | `started` | `steered` | `held` |
