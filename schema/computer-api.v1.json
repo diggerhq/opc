@@ -9,8 +9,6 @@
     "session.updated",
     "session.compacted",
     "message.received",
-    "message.held",
-    "message.delivered",
     "turn.queued",
     "turn.steered",
     "turn.started",
@@ -79,6 +77,9 @@
         "Ask": {
           "$ref": "#/$defs/Ask"
         },
+        "DeclineAnswer": {
+          "$ref": "#/$defs/DeclineAnswer"
+        },
         "Actor": {
           "$ref": "#/$defs/Actor"
         },
@@ -109,6 +110,7 @@
         "Turn",
         "TurnSummary",
         "Ask",
+        "DeclineAnswer",
         "Actor",
         "Person",
         "Capabilities",
@@ -685,67 +687,10 @@
                 "answer": {
                   "anyOf": [
                     {
-                      "type": "object",
-                      "properties": {
-                        "decision": {
-                          "type": "string",
-                          "enum": [
-                            "allow",
-                            "deny",
-                            "always"
-                          ]
-                        },
-                        "message": {
-                          "type": "string",
-                          "maxLength": 2000
-                        }
-                      },
-                      "required": [
-                        "decision"
-                      ],
-                      "additionalProperties": true
+                      "$ref": "#/$defs/ApprovalAnswer"
                     },
                     {
-                      "type": "object",
-                      "properties": {
-                        "answers": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "questionId": {
-                                "type": "string"
-                              },
-                              "choices": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              },
-                              "text": {
-                                "anyOf": [
-                                  {
-                                    "type": "string"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ]
-                              }
-                            },
-                            "required": [
-                              "questionId",
-                              "choices",
-                              "text"
-                            ],
-                            "additionalProperties": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "answers"
-                      ],
-                      "additionalProperties": true
+                      "$ref": "#/$defs/QuestionAnswer"
                     }
                   ]
                 }
@@ -2018,7 +1963,7 @@
           "anyOf": [
             {
               "type": "string",
-              "description": "One of `interrupted`, `withdrawn`, `expired`; may gain values.",
+              "description": "One of `interrupted`, `withdrawn`; may gain values.",
               "examples": [
                 "interrupted"
               ]
@@ -2211,7 +2156,7 @@
         },
         "status": {
           "type": "string",
-          "description": "One of `open`, `answered`, `dismissed`, `interrupted`, `expired`; may gain values.",
+          "description": "One of `open`, `answered`, `dismissed`, `declined`, `interrupted`; may gain values.",
           "examples": [
             "open"
           ]
@@ -2250,7 +2195,7 @@
               "type": "null"
             }
           ],
-          "description": "ApprovalAnswer, QuestionAnswer, or `{ scope }` for a secret ask"
+          "description": "ApprovalAnswer, QuestionAnswer, `{ scope }` for a secret ask, or DeclineAnswer when status is `declined`"
         },
         "approval": {
           "anyOf": [
@@ -2510,7 +2455,7 @@
           "anyOf": [
             {
               "type": "string",
-              "description": "One of `interrupted`, `withdrawn`, `expired`; may gain values.",
+              "description": "One of `interrupted`, `withdrawn`; may gain values.",
               "examples": [
                 "interrupted"
               ]
@@ -2740,6 +2685,24 @@
         "lastActiveAt",
         "syncedAt",
         "urls"
+      ],
+      "additionalProperties": true
+    },
+    "DeclineAnswer": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "messageSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "message",
+        "messageSeq"
       ],
       "additionalProperties": true
     },
@@ -2979,7 +2942,7 @@
           "anyOf": [
             {
               "type": "string",
-              "description": "One of `interrupted`, `withdrawn`, `expired`; may gain values.",
+              "description": "One of `interrupted`, `withdrawn`; may gain values.",
               "examples": [
                 "interrupted"
               ]
@@ -3505,7 +3468,7 @@
             },
             "delivery": {
               "type": "string",
-              "description": "One of `started`, `queued`, `steered`, `held`; may gain values.",
+              "description": "One of `started`, `queued`, `steered`; may gain values.",
               "examples": [
                 "started"
               ]
@@ -3517,168 +3480,22 @@
                 "pattern": "^tn_[0-9a-hjkmnp-tv-z]{12}$",
                 "description": "`tn_` + 12 lowercase Crockford base32"
               }
+            },
+            "declinedAskIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ak_[0-9a-hjkmnp-tv-z]{12}$",
+                "description": "`ak_` + 12 lowercase Crockford base32"
+              }
             }
           },
           "required": [
             "input",
             "ifBusy",
             "delivery",
-            "interruptedTurnIds"
-          ],
-          "additionalProperties": true
-        }
-      },
-      "required": [
-        "id",
-        "seq",
-        "createdAt",
-        "sessionId",
-        "turnId",
-        "actor",
-        "type",
-        "data"
-      ],
-      "additionalProperties": true
-    },
-    "Event.message.held": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^ev_[0-9a-hjkmnp-tv-z]{16}$",
-          "description": "`ev_` + 16 lowercase Crockford base32"
-        },
-        "seq": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "ISO 8601, UTC, milliseconds",
-          "format": "date-time"
-        },
-        "sessionId": {
-          "$ref": "#/$defs/SessionId"
-        },
-        "turnId": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^tn_[0-9a-hjkmnp-tv-z]{12}$",
-              "description": "`tn_` + 12 lowercase Crockford base32"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "actor": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Actor"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "type": {
-          "type": "string",
-          "enum": [
-            "message.held"
-          ]
-        },
-        "data": {
-          "type": "object",
-          "properties": {
-            "askIds": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "required": [
-            "askIds"
-          ],
-          "additionalProperties": true
-        }
-      },
-      "required": [
-        "id",
-        "seq",
-        "createdAt",
-        "sessionId",
-        "turnId",
-        "actor",
-        "type",
-        "data"
-      ],
-      "additionalProperties": true
-    },
-    "Event.message.delivered": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^ev_[0-9a-hjkmnp-tv-z]{16}$",
-          "description": "`ev_` + 16 lowercase Crockford base32"
-        },
-        "seq": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "ISO 8601, UTC, milliseconds",
-          "format": "date-time"
-        },
-        "sessionId": {
-          "$ref": "#/$defs/SessionId"
-        },
-        "turnId": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^tn_[0-9a-hjkmnp-tv-z]{12}$",
-              "description": "`tn_` + 12 lowercase Crockford base32"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "actor": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Actor"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "type": {
-          "type": "string",
-          "enum": [
-            "message.delivered"
-          ]
-        },
-        "data": {
-          "type": "object",
-          "properties": {
-            "as": {
-              "type": "string",
-              "description": "One of `steering`; may gain values.",
-              "examples": [
-                "steering"
-              ]
-            }
-          },
-          "required": [
-            "as"
+            "interruptedTurnIds",
+            "declinedAskIds"
           ],
           "additionalProperties": true
         }
@@ -4109,11 +3926,15 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "silent": {
+              "type": "boolean"
             }
           },
           "required": [
             "text",
-            "durationMs"
+            "durationMs",
+            "silent"
           ],
           "additionalProperties": true
         }
@@ -4258,7 +4079,7 @@
           "properties": {
             "reason": {
               "type": "string",
-              "description": "One of `interrupted`, `withdrawn`, `expired`; may gain values.",
+              "description": "One of `interrupted`, `withdrawn`; may gain values.",
               "examples": [
                 "interrupted"
               ]
@@ -6070,12 +5891,6 @@
           "$ref": "#/$defs/Event.message.received"
         },
         {
-          "$ref": "#/$defs/Event.message.held"
-        },
-        {
-          "$ref": "#/$defs/Event.message.delivered"
-        },
-        {
           "$ref": "#/$defs/Event.turn.queued"
         },
         {
@@ -6272,6 +6087,103 @@
       ],
       "additionalProperties": true
     },
+    "Delta.tool.preparing": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "tool.preparing"
+          ]
+        },
+        "sessionId": {
+          "$ref": "#/$defs/SessionId"
+        },
+        "turnId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^tn_[0-9a-hjkmnp-tv-z]{12}$",
+              "description": "`tn_` + 12 lowercase Crockford base32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "subagentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sa_[0-9a-hjkmnp-tv-z]{12}$",
+                  "description": "`sa_` + 12 lowercase Crockford base32"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "callId": {
+              "type": "string"
+            },
+            "toolName": {
+              "type": "string"
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "lines": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "subagentId",
+            "callId",
+            "toolName",
+            "path",
+            "description",
+            "lines"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "turnId",
+        "data"
+      ],
+      "additionalProperties": true
+    },
     "Delta.tool.delta": {
       "type": "object",
       "properties": {
@@ -6311,6 +6223,44 @@
             "text"
           ],
           "additionalProperties": true
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "turnId",
+        "data"
+      ],
+      "additionalProperties": true
+    },
+    "Delta.session.compacting": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "session.compacting"
+          ]
+        },
+        "sessionId": {
+          "$ref": "#/$defs/SessionId"
+        },
+        "turnId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^tn_[0-9a-hjkmnp-tv-z]{12}$",
+              "description": "`tn_` + 12 lowercase Crockford base32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data": {
+          "not": {
+            "type": "null"
+          }
         }
       },
       "required": [
@@ -6400,7 +6350,13 @@
           "$ref": "#/$defs/Delta.reasoning.delta"
         },
         {
+          "$ref": "#/$defs/Delta.tool.preparing"
+        },
+        {
           "$ref": "#/$defs/Delta.tool.delta"
+        },
+        {
+          "$ref": "#/$defs/Delta.session.compacting"
         },
         {
           "$ref": "#/$defs/Delta.subagent.progress"
@@ -6493,8 +6449,7 @@
           "enum": [
             "started",
             "queued",
-            "steered",
-            "held"
+            "steered"
           ]
         },
         "duplicate": {
@@ -6525,6 +6480,72 @@
         "delivery",
         "duplicate",
         "seq"
+      ],
+      "additionalProperties": true
+    },
+    "ApprovalAnswer": {
+      "type": "object",
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny",
+            "always"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "mode": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "additionalProperties": true
+    },
+    "QuestionAnswer": {
+      "type": "object",
+      "properties": {
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "questionId": {
+                "type": "string"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "questionId",
+              "choices",
+              "text"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": [
+        "answers"
       ],
       "additionalProperties": true
     },

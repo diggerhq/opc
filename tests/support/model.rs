@@ -472,10 +472,7 @@ impl World {
             End::Completed { text, silent } => {
                 t["status"] = "completed".into();
                 t["text"] = text.clone().into();
-                let mut d = json!({"text": text, "durationMs": duration_ms});
-                if silent {
-                    d["silent"] = true.into();
-                }
+                let d = json!({"text": text, "durationMs": duration_ms, "silent": silent});
                 (d, Some(text))
             }
             End::Failed { code, message } => {

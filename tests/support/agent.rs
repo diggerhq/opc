@@ -82,10 +82,9 @@ impl Run {
 
     fn tool_started(&self, sub: Option<&str>, tool: &str, call: &str, parent: Option<&str>, title: &str, input: Value) -> bool {
         // 084 A1: tool.preparing comes before tool.started, as a delta.
-        let mut prep = json!({"callId": call, "toolName": tool});
-        if let Some(s) = sub {
-            prep["subagentId"] = s.into();
-        }
+        let path = input.get("file_path").and_then(Value::as_str);
+        let description = input.get("description").and_then(Value::as_str);
+        let prep = json!({"callId": call, "toolName": tool, "subagentId": sub, "path": path, "description": description, "lines": null});
         if !self.delta("tool.preparing", prep) {
             return false;
         }

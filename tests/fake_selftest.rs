@@ -252,7 +252,7 @@ fn schema_check_catches_a_bad_object() {
     let err = support::check("Event", &json!({"type": "turn.completed", "seq": "one"})).unwrap_err();
     assert!(err.contains("Event.turn.completed"), "{err}");
     // New delta types pass on their envelope.
-    let d = json!({"type": "tool.preparing", "sessionId": "cs_0123456789abcdef", "turnId": "tu_1", "data": {"callId": "c", "toolName": "Bash"}});
+    let d = json!({"type": "tool.preparing", "sessionId": "cs_0123456789abcdef", "turnId": "tn_0123456789ab", "data": {"callId": "c", "toolName": "Bash", "subagentId": null, "path": null, "description": null, "lines": null}});
     assert!(support::check("Delta", &d).is_ok());
     assert!(support::check("Delta", &json!({"type": "tool.preparing"})).is_err());
 }
