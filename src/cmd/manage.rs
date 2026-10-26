@@ -90,7 +90,7 @@ pub async fn archive(ctx: &Ctx, a: SessionOnly, archived: bool) -> Result<i32> {
 
 pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<i32> {
     let target = operand(a.id.as_deref(), a.session.session.as_deref())?;
-    let r = super::resolve::session_or_last(ctx, target.as_deref(), false).await?;
+    let r = super::resolve::session_or_last(ctx, target.as_deref(), true).await?;
     let url = ctx.url_for(r.session.as_ref(), &r.id);
     if !(ctx.tty.stdout && open_browser(&url)) {
         println_out(&url);
@@ -100,6 +100,28 @@ pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<i32> {
 
 /// Opens a link in the browser; false when there is none to open.
 pub fn open_browser(url: &str) -> bool {
+    // `BROWSER`: a command, or several separated by ':', tried in order;
+    // `%s` stands for the link, else it goes last.
+    if let Some(list) = std::env::var("BROWSER").ok().filter(|b| !b.trim().is_empty()) {
+        for entry in list.split(':').map(str::trim).filter(|e| !e.is_empty()) {
+            let mut words: Vec<String> = entry.split_whitespace().map(|w| w.replace("%s", url)).collect();
+            if !entry.contains("%s") {
+                words.push(url.to_string());
+            }
+            let Some((cmd, args)) = words.split_first() else { continue };
+            let ok = std::process::Command::new(cmd)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .is_ok();
+            if ok {
+                return true;
+            }
+        }
+        return false;
+    }
     if std::env::var_os("SSH_CONNECTION").is_some() && std::env::var_os("DISPLAY").is_none() {
         return false;
     }

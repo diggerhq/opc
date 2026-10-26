@@ -1,7 +1,8 @@
 //! `opc watch`: print sessions' activity, read-only, until each is idle or
 //! waiting (or, with `--follow`, until interrupted).
 
-use super::follow::{Follower, Goal, Step, Tracker};
+use super::follow::{Follower, Goal, Step, Tracker, detached_error};
+use serde_json::json;
 use super::run::{finish, race, stopped};
 use super::{Ctx, print_line, println_out};
 use crate::api::types::Event;
@@ -44,12 +45,40 @@ pub async fn run(ctx: &mut Ctx, args: WatchArgs) -> Result<i32> {
     // that is already idle is reported only once the replay has printed.
     let mut printed: HashMap<String, u64> = HashMap::new();
     let mut last_done: Vec<Option<(String, super::follow::Done)>> = vec![None; trackers.len()];
+    let mut failed: Vec<Option<Error>> = vec![None; trackers.len()];
 
     let outcome = race(args.timeout, async {
         loop {
             let step = f.next().await?;
-            if let Step::AttachFailed(_, e) = &step {
-                return Err(e.clone());
+            let lost = match &step {
+                Step::AttachFailed(sid, e) => Some((sid.clone(), e.clone())),
+                Step::Detached(sid, reason) => Some((sid.clone(), detached_error(sid, reason))),
+                _ => None,
+            };
+            if let Some((sid, e)) = lost {
+                // One session lost ends the watch only when it is the only
+                // one: the others are still reported.
+                if !several {
+                    return Err(e);
+                }
+                if let Some(i) = sessions.iter().position(|s| *s == sid)
+                    && failed[i].is_none()
+                {
+                    if format == Format::Text {
+                        eprintln!("opc: {sid}: {}", e.message);
+                    } else {
+                        let mut line = e.to_json();
+                        line["type"] = json!("error");
+                        line["sessionId"] = json!(sid);
+                        print_line(&line);
+                    }
+                    failed[i] = Some(e);
+                    trackers[i].done = Some(Default::default());
+                }
+                if failed.iter().all(Option::is_some) {
+                    return Ok(());
+                }
+                continue;
             }
             match &step {
                 Step::Event(e) => {
@@ -57,11 +86,13 @@ pub async fn run(ctx: &mut Ctx, args: WatchArgs) -> Result<i32> {
                     print_event(e, format, several, &style);
                 }
                 Step::Delta(d) if deltas && matches!(d.kind(), "message.delta" | "reasoning.delta") => print_line(&d.0),
-                Step::Reconnecting { retry_in, .. } => ctx.progress(&format!("connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64))),
-                Step::Detached(sid, reason) => return Err(Error::new("forbidden", format!("stopped receiving {sid}: {reason}"))),
+                Step::Reconnecting { attempt, retry_in, .. } if super::follow::worth_saying(*attempt, *retry_in) => ctx.progress(&format!("connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64))),
                 _ => {}
             }
             for (i, t) in trackers.iter_mut().enumerate() {
+                if failed[i].is_some() {
+                    continue;
+                }
                 t.update(&mut f, &step).await?;
                 if let Some(done) = t.done.take() {
                     // A finished turn, for --json; with --follow, keep going.
@@ -83,7 +114,7 @@ pub async fn run(ctx: &mut Ctx, args: WatchArgs) -> Result<i32> {
                 let snap = f.state(sid).and_then(|s| s.info.as_ref()).map(|i| i.session.last_seq).unwrap_or(0);
                 printed.get(sid).copied().unwrap_or(target) >= snap
             };
-            if trackers.iter().all(|t| t.done.is_some() && caught_up(&t.session_id)) {
+            if trackers.iter().enumerate().all(|(i, t)| failed[i].is_some() || (t.done.is_some() && caught_up(&t.session_id))) {
                 return Ok(());
             }
         }
@@ -94,6 +125,10 @@ pub async fn run(ctx: &mut Ctx, args: WatchArgs) -> Result<i32> {
         Ok(()) => {
             let mut codes = Vec::new();
             for (i, t) in trackers.iter().enumerate() {
+                if let Some(e) = &failed[i] {
+                    codes.push(e.exit_code());
+                    continue;
+                }
                 let done = t.done.clone().unwrap_or_default();
                 let url = ctx.config.dashboard_url(&t.session_id);
                 let code = match (format, &last_done[i]) {

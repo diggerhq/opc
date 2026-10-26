@@ -187,7 +187,7 @@ pub struct RunArgs {
     /// With stream-json: also print text deltas
     #[arg(long)]
     pub include_partial_messages: bool,
-    /// With -p, when an ask opens: fail (exit 5), dismiss, or wait
+    /// With -p, when an ask opens: fail (exit 5), dismiss, or wait (also on send --wait and wait)
     #[arg(long, value_enum, value_name = "ACTION")]
     pub on_ask: Option<OnAsk>,
     /// With -p: give up after this long (90s, 20m, 2h), exit 124
@@ -432,6 +432,9 @@ pub struct SendArgs {
     /// With --wait: also wait for the background subagents the turn launched
     #[arg(long, requires = "wait")]
     pub wait_subagents: bool,
+    /// With --wait, when an ask opens: fail (exit 5), dismiss, or wait
+    #[arg(long, value_enum, value_name = "ACTION", requires = "wait")]
+    pub on_ask: Option<OnAsk>,
     /// A repeat sends nothing new and prints the original turn
     #[arg(long, value_name = "KEY")]
     pub idempotency_key: Option<String>,
@@ -462,6 +465,9 @@ pub struct WaitArgs {
     /// Also wait for the background subagents the turn launched
     #[arg(long)]
     pub wait_subagents: bool,
+    /// When an ask opens: fail (exit 5), dismiss, or wait
+    #[arg(long, value_enum, value_name = "ACTION")]
+    pub on_ask: Option<OnAsk>,
     /// The Result of the last turn
     #[arg(long)]
     pub json: bool,

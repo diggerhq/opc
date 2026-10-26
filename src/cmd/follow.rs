@@ -391,6 +391,9 @@ pub struct Tracker {
     checked_attach: bool,
     dismissed: HashSet<String>,
     pub done: Option<Done>,
+    /// Why this session could not be followed (with `done` set), when the
+    /// command follows others too.
+    pub failed: Option<Error>,
 }
 
 impl Tracker {
@@ -406,6 +409,7 @@ impl Tracker {
             checked_attach: false,
             dismissed: HashSet::new(),
             done: None,
+            failed: None,
         }
     }
 
@@ -569,6 +573,18 @@ impl Tracker {
     }
 }
 
+/// Whether a reconnect is worth a line on stderr: the first few retries
+/// (0, ~250 and ~500 ms) usually succeed within a second and stay quiet.
+pub fn worth_saying(attempt: u32, retry_in: std::time::Duration) -> bool {
+    attempt >= 3 || retry_in >= std::time::Duration::from_secs(1)
+}
+
+/// The error for `session.detached` with this reason.
+pub fn detached_error(sid: &str, reason: &str) -> Error {
+    let code = if reason.contains("archived") || reason.contains("deleted") || reason.contains("not_found") { "session_not_found" } else { "forbidden" };
+    Error::new(code, format!("stopped receiving {sid}: {reason}")).with("sessionId", sid).with("reason", reason)
+}
+
 /// Pumps steps into `sink` and the trackers until one that was not done is
 /// done; returns its index. `sink` sees every step first.
 pub async fn run_until_next(
@@ -600,7 +616,23 @@ pub async fn run_until_next(
                 f.wire.attach(crate::wire::Attach { session_id: sid.clone(), after: Some(0), ..Default::default() });
                 continue;
             }
-            return Err(e.clone());
+        }
+        let lost = match &step {
+            Step::AttachFailed(sid, e) => Some((sid.clone(), e.clone())),
+            Step::Detached(sid, reason) => Some((sid.clone(), detached_error(sid, reason))),
+            _ => None,
+        };
+        if let Some((sid, e)) = lost.filter(|(sid, _)| trackers.iter().any(|t| &t.session_id == sid && t.done.is_none())) {
+            // One session lost ends the command only when it is the only
+            // one left: the others still get their Results.
+            if trackers.len() == 1 {
+                return Err(e);
+            }
+            for t in trackers.iter_mut().filter(|t| t.session_id == sid && t.done.is_none()) {
+                t.failed = Some(e.clone());
+                t.done = Some(Done::default());
+            }
+            continue;
         }
         sink(f, &step);
         for t in trackers.iter_mut() {

@@ -4,7 +4,7 @@
 use opc::cli::{self, Format};
 use opc::cmd::{self, Ctx, Ttys};
 use opc::error::{Error, exit};
-use opc::{http, log, timing};
+use opc::{http, log, net, timing};
 
 fn main() {
     timing::init();
@@ -27,6 +27,8 @@ fn run(args: Vec<String>) -> i32 {
         Err(e) => return parse_failure(&args, e),
     };
     log::init(parsed.global.verbose);
+    // Load the platform's TLS roots while config and caches are read.
+    std::thread::spawn(net::prewarm_tls);
     let style = err_style(&parsed, tty);
     let timing_on = parsed.global.timing;
     let quiet = parsed.global.quiet;

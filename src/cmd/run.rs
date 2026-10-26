@@ -100,6 +100,10 @@ pub async fn create(ctx: &Ctx, id: &str, new: &NewSession, input: Option<&str>) 
     if new.push.is_empty() {
         return Ok((created, None));
     }
+    // Uploads can take minutes: say where the session is now, so a caller
+    // killed meanwhile can get back to it. The full handle follows the send.
+    cache::set_last_session(&sid);
+    eprintln!("opc: session {sid} {}", ctx.config.dashboard_url(&sid));
     for (n, dir) in new.push.iter().enumerate() {
         ctx.progress(&format!("pushing {}", dir.display()));
         let upload_key = key.map(|k| format!("{k}:upload:{}", n + 1));
@@ -217,7 +221,7 @@ impl Printer {
                 _ => {}
             },
             Step::Delta(d) if format == Format::StreamJson && partial && matches!(d.kind(), "message.delta" | "reasoning.delta") => print_line(&d.0),
-            Step::Reconnecting { retry_in, .. } if progress => eprintln!("opc: connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64)),
+            Step::Reconnecting { attempt, retry_in, .. } if progress && follow::worth_saying(*attempt, *retry_in) => eprintln!("opc: connection lost, reconnecting in {}", render::duration(retry_in.as_millis() as u64)),
             Step::Detached(sid, reason) => eprintln!("opc: stopped receiving {sid}: {reason}"),
             _ => {}
         }

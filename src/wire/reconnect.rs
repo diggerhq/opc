@@ -305,14 +305,16 @@ impl Actor {
             }
             let deadline = self.next_deadline();
             tokio::select! {
+                // Commands first: they are few, and an interrupt must not
+                // wait behind a flood of inbound frames.
                 biased;
-                frame = self.frames_rx.recv() => {
-                    if let Some((generation, frame)) = frame { self.on_frame(generation, frame); }
-                }
                 cmd = cmds.recv() => match cmd {
                     Some(cmd) => self.on_cmd(cmd),
                     None => self.close(),
                 },
+                frame = self.frames_rx.recv() => {
+                    if let Some((generation, frame)) = frame { self.on_frame(generation, frame); }
+                }
                 internal = self.internal_rx.recv() => {
                     if let Some(i) = internal { self.on_internal(i); }
                 }
@@ -1056,7 +1058,13 @@ impl Actor {
             return;
         }
         let Some(http) = self.http.clone() else {
-            // No HTTP: attach from where we are and let the server decide.
+            // No HTTP to page with: say so rather than strand the session
+            // (attaching again would only be refused the same way).
+            let id = id.to_string();
+            self.sessions.remove(&id);
+            self.order.retain(|s| s != &id);
+            let e = Error::new("too_far_behind", format!("{id} is too far behind to catch up on the wire"));
+            self.emit(WireEvent::Attached { session_id: id, result: Err(e) });
             return;
         };
         s.paging = true;

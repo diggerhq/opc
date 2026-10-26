@@ -3,7 +3,8 @@
 
 use super::follow::{self, Follower, Goal, Tracker};
 use super::run::{Stop, finish, race, stopped};
-use super::{Ctx, print_line};
+use super::{Ctx, print_line, println_out};
+use serde_json::json;
 use crate::api::result;
 use crate::cache;
 use crate::cli::{Format, OnAsk, WaitArgs};
@@ -39,6 +40,7 @@ async fn targets(ctx: &Ctx, args: &WaitArgs) -> Result<Vec<Target>> {
         if ids::looks_like_turn(&op) {
             let sid = cache::session_for_turn(&op).ok_or_else(|| {
                 Error::usage(format!("{op} was not sent from this machine: name its session too, opc wait <id> --turn {op}"))
+                    .hint("the handle line (opc: session cs_… turn tn_…) gives both ids; this machine remembers its last 500 turns")
             })?;
             out.push(Target { session_id: sid, goal: Goal::Turn(op) });
         } else {
@@ -66,7 +68,7 @@ pub async fn run(ctx: &mut Ctx, args: WaitArgs) -> Result<i32> {
     let (wire, rx) = ctx.open_wire(attaches, false).await?;
     let pairs: Vec<(String, bool)> = sessions.iter().map(|s| (s.clone(), false)).collect();
     let mut f = Follower::new(wire, rx, &pairs);
-    let mut trackers: Vec<Tracker> = targets.iter().map(|t| Tracker::new(&t.session_id, t.goal.clone(), OnAsk::Fail, args.wait_subagents)).collect();
+    let mut trackers: Vec<Tracker> = targets.iter().map(|t| Tracker::new(&t.session_id, t.goal.clone(), args.on_ask.unwrap_or(OnAsk::Fail), args.wait_subagents)).collect();
 
     let mut codes: Vec<Option<i32>> = vec![None; trackers.len()];
     let any = args.any;
@@ -75,6 +77,22 @@ pub async fn run(ctx: &mut Ctx, args: WaitArgs) -> Result<i32> {
         loop {
             let i = follow::run_until_next(&mut f, &mut trackers, &mut sink).await?;
             let t = &trackers[i];
+            if let Some(e) = &t.failed {
+                // This session could not be followed; the others go on.
+                if format == Format::Json {
+                    let mut line = e.stream_result_line();
+                    line["sessionId"] = json!(t.session_id);
+                    print_line(&line);
+                } else {
+                    eprintln!("opc: {}: {}", t.session_id, e.message);
+                }
+                codes[i] = Some(e.exit_code());
+                // With --any, a lost session is not the answer: wait on.
+                if codes.iter().all(Option::is_some) {
+                    return Ok(e.exit_code());
+                }
+                continue;
+            }
             let done = t.done.clone().unwrap_or_default();
             let url = ctx.config.dashboard_url(&t.session_id);
             let r = f.result(&t.session_id, &done, &url).await?;
@@ -84,7 +102,14 @@ pub async fn run(ctx: &mut Ctx, args: WaitArgs) -> Result<i32> {
                         print_line(r);
                         result::exit_code(r)
                     }
-                    other => finish(ctx, other.as_ref(), format),
+                    other => {
+                        // Say which session each answer is from.
+                        if codes.iter().any(Option::is_some) {
+                            println_out("");
+                        }
+                        println_out(&format!("── {}", t.session_id));
+                        finish(ctx, other.as_ref(), format)
+                    }
                 }
             } else {
                 finish(ctx, r.as_ref(), format)

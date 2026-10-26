@@ -116,6 +116,20 @@ fn an_ask_exits_five_with_the_ask() {
 }
 
 #[test]
+fn send_wait_and_wait_take_on_ask() {
+    let fake = Fake::start();
+    let sid = fake.seed_session(Seed::new("x"));
+    let o = run(&fake, &["send", "-s", &sid, "--wait", "--on-ask", "dismiss", "--json", "approve"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    check("Result", &o.json());
+    let o = run(&fake, &["send", "-s", &sid, "approve"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let o = run(&fake, &["wait", &sid, "--on-ask", "dismiss", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.json()["ask"].is_null(), "{}", o.stdout);
+}
+
+#[test]
 fn silent_turn_prints_nothing() {
     let fake = Fake::start();
     let o = run(&fake, &["-p", "silent"]);
@@ -367,6 +381,44 @@ fn wait_any_over_many_sessions_uses_one_connection() {
     check("Result", &o.json());
     assert_eq!(o.json()["sessionId"], ids[3].as_str());
     assert_eq!(fake.ws_connections() - before, 1);
+}
+
+#[test]
+fn wait_all_reports_every_session_when_one_is_lost() {
+    let fake = Fake::start();
+    let ok = fake.seed_session(Seed::new("fine"));
+    let lost = fake.seed_session(Seed::new("lost"));
+    fake.send(&ok, "reply done", "queue").unwrap();
+    fake.fail_next(&format!("ws attach {lost}"), 1, Failure::forbidden("not_yours"));
+    let o = run(&fake, &["wait", "--all", "--json", &ok, &lost]);
+    assert_eq!(o.code, 1, "{}\n{}", o.stdout, o.stderr);
+    let lines: Vec<serde_json::Value> = o.stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 2, "{}", o.stdout);
+    let good = lines.iter().find(|l| l["sessionId"] == ok.as_str()).expect("the healthy session's Result");
+    check("Result", good);
+    let bad = lines.iter().find(|l| l["sessionId"] == lost.as_str()).expect("the lost session's line");
+    assert_eq!(bad["isError"], true, "{bad}");
+
+    // `--all` keeps its documented codes: not all completed is 1.
+    // Text: each answer under its session, the lost one on stderr.
+    fake.fail_next(&format!("ws attach {lost}"), 1, Failure::forbidden("not_yours"));
+    let o = run(&fake, &["wait", "--all", &ok, &lost]);
+    assert_eq!(o.code, 1, "{}", o.stderr);
+    assert!(o.stdout.contains(&ok), "{}", o.stdout);
+    assert!(o.stderr.contains(&lost), "{}", o.stderr);
+}
+
+#[test]
+fn watch_goes_on_when_one_session_is_lost() {
+    let fake = Fake::start();
+    let ok = fake.seed_session(Seed::new("fine"));
+    let lost = fake.seed_session(Seed::new("lost"));
+    fake.send(&ok, "reply done", "queue").unwrap();
+    fake.fail_next(&format!("ws attach {lost}"), 1, Failure::forbidden("not_yours"));
+    let o = run(&fake, &["watch", "--json", &ok, &lost]);
+    assert_eq!(o.code, 1, "{}\n{}", o.stdout, o.stderr);
+    assert!(o.stdout.lines().any(|l| l.contains("\"type\":\"error\"") && l.contains(&lost)), "{}", o.stdout);
+    assert!(o.stdout.lines().any(|l| l.contains(&ok) && !l.contains("\"type\":\"error\"")), "{}", o.stdout);
 }
 
 #[test]
@@ -630,6 +682,19 @@ fn push_and_pull_wait_for_a_starting_computer() {
     let o = run(&fake, &["pull", "app", dest.path().join("app").to_str().unwrap(), "-s", &sid, "--json"]);
     assert_eq!(o.code, 0, "{}", o.stderr);
     assert_eq!(std::fs::read_to_string(dest.path().join("app/main.txt")).unwrap(), "hello");
+}
+
+#[test]
+fn push_gives_the_session_before_the_uploads() {
+    let fake = Fake::start();
+    let src = tempfile::tempdir().unwrap();
+    std::fs::write(src.path().join("main.txt"), "hello").unwrap();
+    // The upload fails: the session still exists, and the caller knows it.
+    fake.fail_next("PUT /sessions/*/workspace/archive", 1, Failure::new(400, "invalid_request"));
+    let o = run(&fake, &["-p", "--push", src.path().to_str().unwrap(), "reply hi"]);
+    assert_ne!(o.code, 0, "{}", o.stderr);
+    let sid = fake.session_ids().pop().expect("a session was created");
+    assert!(o.stderr.contains(&format!("opc: session {sid}")), "{}", o.stderr);
 }
 
 #[test]

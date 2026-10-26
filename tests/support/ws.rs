@@ -569,7 +569,12 @@ async fn run_inner(
     for p in wanted.into_iter().take(20) {
         let p = Value::Object(p);
         let sid = p["sessionId"].as_str().unwrap_or("").to_string();
-        match c.attach(&p).await {
+        // `fail_next("ws attach <sid>", ..)` fails one session's URL attach.
+        let r = match take_failure(&c.sh, "ws", &format!("attach {sid}")) {
+            Some(f) => Err(f.to_err()),
+            None => c.attach(&p).await,
+        };
+        match r {
             Ok((mut r, events)) => {
                 r["sessionId"] = sid.into();
                 r["error"] = Value::Null;

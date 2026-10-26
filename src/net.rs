@@ -170,7 +170,11 @@ pub fn prewarm_tls() {
 /// The proxy to use for `host`, from `HTTPS_PROXY`/`https_proxy`, unless
 /// `NO_PROXY` names it.
 pub fn proxy_for(host: &str) -> Option<String> {
-    let proxy = env_any(&["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"])?;
+    // `ALL_PROXY` is often a SOCKS proxy (ssh -D) meant for other tools:
+    // it is used only when it is an http:// one.
+    let proxy = env_any(&["HTTPS_PROXY", "https_proxy"]).or_else(|| {
+        env_any(&["ALL_PROXY", "all_proxy"]).filter(|p| !p.contains("://") || p.to_ascii_lowercase().starts_with("http://"))
+    })?;
     if let Some(no) = env_any(&["NO_PROXY", "no_proxy"]) {
         let h = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
         for entry in no.split(',').map(|e| e.trim().to_ascii_lowercase()) {
