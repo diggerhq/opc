@@ -545,6 +545,9 @@ pub struct AskDecideArgs {
     /// A message the agent reads with the decision
     #[arg(short, long, value_name = "MESSAGE")]
     pub message: Option<String>,
+    /// For a plan: the permission mode to switch to when allowing it, such as acceptEdits
+    #[arg(long, value_name = "MODE")]
+    pub mode: Option<String>,
     #[arg(long)]
     pub json: bool,
 }

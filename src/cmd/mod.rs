@@ -19,6 +19,7 @@ pub mod secret;
 pub mod send;
 pub mod shell;
 pub mod subagents;
+pub mod transfer;
 pub mod wait;
 pub mod watch;
 
