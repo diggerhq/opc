@@ -41,9 +41,11 @@ esac
 
 if [ "$version" = latest ]; then
   # The redirect of /releases/latest names the tag, with no API rate limit.
-  # It is 404 while only pre-releases exist: then ask the API for the newest.
+  # While only pre-releases exist it is a 404 or a redirect to /releases:
+  # then ask the API for the newest.
   version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$gh/$repo/releases/latest" 2>/dev/null | sed 's#.*/##') || version=
-  if [ -z "$version" ] || [ "$version" = latest ]; then
+  case "$version" in v*) ;; *) version= ;; esac
+  if [ -z "$version" ]; then
     version=$(curl -fsSL "$api/repos/$repo/releases?per_page=1" 2>/dev/null \
       | tr "," "\n" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || version=
   fi
