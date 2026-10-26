@@ -16,7 +16,7 @@ Only the session's owner, or an admin of your organization, can open a terminal 
 
 A terminal runs as the computer's agent user, the same user every session's agent runs as. It can read every session's workspace on that computer, not only its own. Treat opening a terminal like logging in to the computer.
 
-A terminal does **not** get the session's [secrets](/api/http/secrets): they are not in its environment, and it cannot read them from the agent's process, which the computer marks as not inspectable.
+A terminal's environment does not include the session's [secrets](/api/http/secrets), but they are not hidden from it. Because it runs as the same user as every session's agent, it can read the secrets of every session on that computer, just as any session's agent can.
 
 ## terminals.open
 

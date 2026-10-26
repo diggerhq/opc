@@ -23,7 +23,7 @@ Inside a session, `/shell` does the same and returns to the session screen when 
 
 Only the session's owner, or an admin of the organization. Anyone else gets `opc: only the owner of this session can open a shell in it` and exit code `3`.
 
-A shell runs as the computer's agent user, the same user every session's agent runs as. It can read every session's workspace on the computer, not only this one's. It does not get the session's secrets: they are not in its environment, and it cannot read them from the agent's processes. The shell is for looking around, not for acting as the agent.
+A shell runs as the computer's agent user, the same user every session's agent runs as. It can read every session's workspace on the computer, not only this one's. Its environment does not include the session's secrets, but as that same user it can read every session's secrets on the computer, just as any session's agent can.
 
 ## Options
 
