@@ -28,7 +28,11 @@ pub fn enter() -> std::io::Result<Guard> {
     HOOK.call_once(|| {
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
+            if ACTIVE.load(Ordering::SeqCst) {
+                let _ = std::io::stdout().write_all(super::draw::erase_live().as_bytes());
+            }
             restore();
+            pop_title();
             prev(info);
         }));
     });
@@ -91,18 +95,53 @@ pub fn resume() {
 /// `Ctrl+Z`: stop as any program does, and come back on `fg`.
 pub fn suspend_self() {
     handed_over(|| {
-        let pid = std::process::id().to_string();
-        let _ = std::process::Command::new("kill").args(["-TSTP", &pid]).status();
+        // SAFETY: raise has no preconditions; it returns after SIGCONT.
+        unsafe { raise(SIGTSTP) };
     });
+}
+
+// libc is only a dev-dependency: the one call it would give, declared here.
+unsafe extern "C" {
+    fn raise(sig: i32) -> i32;
+}
+#[cfg(target_os = "linux")]
+const SIGTSTP: i32 = 20;
+#[cfg(not(target_os = "linux"))]
+const SIGTSTP: i32 = 18;
+
+/// Puts back the title saved by [`title`], once.
+fn pop_title() {
+    if TITLE.swap(false, Ordering::SeqCst) {
+        let mut out = std::io::stdout();
+        let _ = out.write_all(super::notify::pop_title().as_bytes());
+        let _ = out.flush();
+    }
+}
+
+/// Waits for SIGTERM or SIGHUP and gives the exit code (143 or 129).
+/// Pin it once, before the loop that selects on it.
+pub async fn stop_signal() -> i32 {
+    use tokio::signal::unix::{SignalKind, signal};
+    let (Ok(mut t), Ok(mut h)) = (signal(SignalKind::terminate()), signal(SignalKind::hangup())) else {
+        return std::future::pending().await;
+    };
+    tokio::select! {
+        _ = t.recv() => 143,
+        _ = h.recv() => 129,
+    }
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
         restore();
-        if TITLE.swap(false, Ordering::SeqCst) {
-            let mut out = std::io::stdout();
-            let _ = out.write_all(super::notify::pop_title().as_bytes());
-            let _ = out.flush();
-        }
+        pop_title();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sigtstp_matches_libc() {
+        assert_eq!(super::SIGTSTP, libc::SIGTSTP);
     }
 }

@@ -255,3 +255,45 @@ fn esc_interrupts_the_running_turn() {
     p.keys(b"\x04");
     assert_eq!(p.wait_exit(), 0);
 }
+
+#[test]
+fn sigterm_and_sighup_put_the_terminal_back() {
+    for (sig, code) in [(libc::SIGTERM, 143), (libc::SIGHUP, 129)] {
+        let fake = Fake::start();
+        let mut p = Pty::spawn(&fake, &[]);
+        p.wait_for("type a message");
+        // SAFETY: a plain kill(2) to our own child.
+        assert_eq!(unsafe { libc::kill(p.child.id() as i32, sig) }, 0);
+        assert_eq!(p.wait_exit(), code);
+        std::thread::sleep(Duration::from_millis(100));
+        let raw = String::from_utf8_lossy(&p.out.lock().unwrap()).to_string();
+        let (on, off) = (raw.rfind("\x1b[?2004h").unwrap(), raw.rfind("\x1b[?2004l").expect("bracketed paste off"));
+        assert!(off > on, "bracketed paste left on: {raw:?}");
+        assert!(raw.ends_with("\x1b[23;0t"), "the title is not put back: {:?}", &raw[raw.len().saturating_sub(80)..]);
+    }
+}
+
+#[test]
+fn a_narrower_window_erases_the_reflowed_live_area() {
+    let fake = Fake::start();
+    let mut p = Pty::spawn(&fake, &[]);
+    p.wait_for("type a message");
+    std::thread::sleep(Duration::from_millis(300));
+    let before = p.out.lock().unwrap().len();
+    let ws = libc::winsize { ws_row: 40, ws_col: 60, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: TIOCSWINSZ on our pty master; the kernel sends SIGWINCH.
+    assert_eq!(unsafe { libc::ioctl(p.master.as_raw_fd(), libc::TIOCSWINSZ as _, &ws) }, 0);
+    let end = Instant::now() + T;
+    let raw = loop {
+        let raw = String::from_utf8_lossy(&p.out.lock().unwrap()[before..]).to_string();
+        if raw.contains("\x1b[?2026l") || Instant::now() > end {
+            break raw;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(raw.contains(&format!("J{}\r\n", "─".repeat(60))), "{raw:?}");
+    // The 120-column rule above the prompt now takes two lines.
+    assert!(raw.starts_with("\x1b[?2026h\r\x1b[2A\x1b[J"), "{raw:?}");
+    p.keys(b"\x04");
+    assert_eq!(p.wait_exit(), 0);
+}

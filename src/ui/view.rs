@@ -171,18 +171,22 @@ pub fn compose(live: &Live, w: usize, h: usize) -> (Vec<Row>, (usize, usize)) {
     let w = w.max(1);
     let h = h.max(3);
     let wrap_all = |ls: &[TLine]| ls.iter().flat_map(|l| wrap(l, w)).collect::<Vec<Row>>();
-    // The fixed bottom: rule, prompt (at most 6 rows around the cursor), status.
+    // The fixed bottom: rule, prompt (at most 6 rows around the cursor),
+    // status. Never more than `h - 1` rows: on a short screen the prompt
+    // shows fewer rows, then the status row goes.
+    let cap = h - 1;
+    let show_status = cap >= 3;
+    let pmax = 6.min(cap - 1 - show_status as usize).max(1);
     let mut prompt = wrap_all(&live.prompt);
     let (mut pr, pc) = live.prompt_cursor;
-    if prompt.len() > 6 {
-        let start = pr.saturating_sub(5).min(prompt.len() - 6);
-        prompt = prompt[start..start + 6].to_vec();
+    if prompt.len() > pmax {
+        let start = pr.saturating_sub(pmax - 1).min(prompt.len() - pmax);
+        prompt = prompt[start..start + pmax].to_vec();
         pr -= start;
     }
     let status = status_row(&live.status_left, &live.status_right, w);
-    let fixed = prompt.len() + 2;
+    let fixed = prompt.len() + 1 + show_status as usize;
     let budget = MAX_LIVE.min(h / 2).max(fixed + 1);
-    let cap = h.saturating_sub(1).max(fixed);
     // The ask and a list are shown whole when the screen allows.
     let mut ask = wrap_all(&live.ask);
     let mut ask_cursor = live.ask_cursor;
@@ -217,7 +221,9 @@ pub fn compose(live: &Live, w: usize, h: usize) -> (Vec<Row>, (usize, usize)) {
     rows.push(vec![Seg::new(g().rule.repeat(w), Sty::Dim)]);
     let prompt_at = rows.len();
     rows.extend(prompt);
-    rows.push(status);
+    if show_status {
+        rows.push(status);
+    }
     let cursor = match ask_cursor {
         Some((r, c)) if live.ask_focused => (ask_at + r, c.min(w - 1)),
         _ => (prompt_at + pr, pc.min(w - 1)),
@@ -356,6 +362,26 @@ mod tests {
         let s = screen(&rows, 80, rows.len() as u16);
         assert_eq!(s[0], "  queued  then run the whole suite");
         assert!(s[3].starts_with("● idle · 1 queued"), "{s:?}");
+    }
+
+    #[test]
+    fn short_terminals_never_get_more_rows_than_fit() {
+        let m = Model::new("ses_7f3a", false);
+        let mut ed = Editor::new(vec![]);
+        ed.insert(&"a line\n".repeat(10));
+        let mut live = live_of(&m, &ed, 0, 40);
+        live.top = vec![TLine::row(2).s("streaming", Sty::Plain)];
+        for h in 3..12 {
+            let (rows, cursor) = compose(&live, 40, h);
+            assert!(rows.len() < h, "{} rows for {h}", rows.len());
+            assert!(cursor.0 < rows.len());
+        }
+        let (rows, _) = compose(&live, 40, 6);
+        let s = screen(&rows, 40, rows.len() as u16);
+        assert_eq!(s.len(), 5);
+        assert!(s[0].starts_with("──") && s[4].ends_with("ctrl+o details"), "{s:?}");
+        let (rows, _) = compose(&live, 40, 3);
+        assert_eq!(rows.len(), 2, "the rule and one prompt row");
     }
 
     #[test]

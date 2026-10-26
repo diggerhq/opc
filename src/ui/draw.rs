@@ -4,6 +4,7 @@
 //! screen is never used.
 
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::model::RIGHT;
 use super::view::Row;
@@ -58,19 +59,64 @@ pub fn ansi(row: &Row, color: bool) -> String {
     out
 }
 
+/// Lines from the cursor up to the live area's top, for the panic hook.
+static LIVE_UP: AtomicUsize = AtomicUsize::new(0);
+
+/// Moves `n` lines up to the live area's top and erases from there down.
+fn erase(n: usize) -> String {
+    let mut s = String::from("\r");
+    if n > 0 {
+        s.push_str(&format!("\x1b[{n}A"));
+    }
+    s.push_str("\x1b[J");
+    s
+}
+
+/// Erases the live area the last frame drew (the panic hook).
+pub fn erase_live() -> String {
+    erase(LIVE_UP.load(Ordering::SeqCst))
+}
+
 /// Where the live area is on screen, from the last frame.
 #[derive(Debug, Default)]
 pub struct Painter {
     /// The cursor's row in the live area as left by the last frame.
     cursor_row: usize,
-    /// Rows of the last frame's live area.
-    rows: usize,
+    cursor_col: usize,
+    /// Widths of the last frame's rows, and the width they were made for.
+    widths: Vec<usize>,
+    frame_w: usize,
+    /// The terminal's width now, when it changed since the last frame.
+    term_w: Option<usize>,
     pub color: bool,
 }
 
 impl Painter {
     pub fn new(color: bool) -> Painter {
-        Painter { cursor_row: 0, rows: 0, color }
+        Painter { color, ..Painter::default() }
+    }
+
+    /// The terminal's width changed: the rows it reflowed take more lines,
+    /// so the next erase goes up further.
+    pub fn resized(&mut self, w: usize) {
+        self.term_w = Some(w.max(1)).filter(|w| *w != self.frame_w);
+        LIVE_UP.store(self.up(), Ordering::SeqCst);
+    }
+
+    /// Lines from the cursor up to the live area's top.
+    fn up(&self) -> usize {
+        match self.term_w {
+            None => self.cursor_row,
+            Some(w) => self.widths[..self.cursor_row.min(self.widths.len())].iter().map(|n| n.div_ceil(w).max(1)).sum::<usize>() + self.cursor_col / w,
+        }
+    }
+
+    fn forget(&mut self) {
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.widths.clear();
+        self.term_w = None;
+        LIVE_UP.store(0, Ordering::SeqCst);
     }
 
     /// One frame: the settled lines go above, the live area is redrawn
@@ -103,35 +149,32 @@ impl Painter {
         buf.push_str("\x1b[?25h");
         buf.push_str(SYNC_OFF);
         self.cursor_row = cr;
-        self.rows = live.len();
+        self.cursor_col = cc;
+        self.widths = live.iter().map(super::view::row_width).collect();
+        self.frame_w = w;
+        self.term_w = None;
+        LIVE_UP.store(cr, Ordering::SeqCst);
         out.write_all(buf.as_bytes())?;
         out.flush()
     }
 
     /// Moves to the top of the live area and erases it.
     fn erase_seq(&self) -> String {
-        let mut s = String::from("\r");
-        if self.cursor_row > 0 {
-            s.push_str(&format!("\x1b[{}A", self.cursor_row));
-        }
-        s.push_str("\x1b[J");
-        s
+        erase(self.up())
     }
 
     /// Erases the live area, leaving the cursor where it began: before
     /// handing the terminal to another program, and on exit.
     pub fn clear(&mut self, out: &mut impl Write) -> std::io::Result<()> {
         let s = self.erase_seq();
-        self.cursor_row = 0;
-        self.rows = 0;
+        self.forget();
         out.write_all(s.as_bytes())?;
         out.flush()
     }
 
     /// `Ctrl+L`: clears the screen; the next frame draws at the top.
     pub fn clear_screen(&mut self, out: &mut impl Write) -> std::io::Result<()> {
-        self.cursor_row = 0;
-        self.rows = 0;
+        self.forget();
         out.write_all(b"\x1b[2J\x1b[H")?;
         out.flush()
     }
@@ -146,8 +189,7 @@ impl Painter {
                 buf.push_str("\r\n");
             }
         }
-        self.cursor_row = 0;
-        self.rows = 0;
+        self.forget();
         out.write_all(buf.as_bytes())?;
         out.flush()
     }
@@ -171,6 +213,20 @@ mod tests {
         let s = String::from_utf8(out).unwrap();
         assert!(s.starts_with("\x1b[?2026h\r\x1b[1A\x1b[J─────"), "{s:?}");
         assert!(!s.contains("hello"));
+    }
+
+    #[test]
+    fn a_narrower_terminal_erases_the_reflowed_rows() {
+        let mut p = Painter::new(false);
+        let live = vec![vec![Seg::new("x".repeat(30), Sty::Plain)], vec![Seg::new("> hi", Sty::Plain)], vec![Seg::new("● idle", Sty::Dim)]];
+        p.frame(&mut Vec::new(), &[], &live, (1, 4), 40).unwrap();
+        // 30 columns at 20 wide are two lines: two up to the top.
+        p.resized(20);
+        let mut out = Vec::new();
+        p.frame(&mut out, &[], &live, (1, 4), 20).unwrap();
+        assert!(String::from_utf8(out).unwrap().starts_with("\x1b[?2026h\r\x1b[2A\x1b[J"));
+        p.resized(40);
+        assert_eq!(p.erase_seq(), "\r\x1b[1A\x1b[J");
     }
 
     #[test]

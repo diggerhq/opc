@@ -35,6 +35,8 @@ const ASK_GUARD_MS: i64 = 300;
 /// An ask takes the keyboard after this long without a key, prompt empty.
 const ASK_IDLE_MS: i64 = 500;
 const CTRL_C_MS: i64 = 2_000;
+/// The terminal is gone after this many read errors in a row.
+const TERM_ERRORS: u32 = 5;
 
 /// How the screen was left.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +165,8 @@ struct App<'a> {
     last_draw: i64,
     size: (usize, usize),
     sessions: Vec<Session>,
+    /// SIGTERM or SIGHUP ended the screen: the exit code.
+    killed: Option<i32>,
 }
 
 fn env(k: &str) -> Option<String> {
@@ -187,6 +191,9 @@ pub async fn session(ctx: &Ctx, start: Start) -> Result<Exit> {
     let r = app.run(start).await;
     app.finish(r.as_ref().err());
     drop(guard);
+    if let Some(code) = app.killed {
+        std::process::exit(code);
+    }
     r
 }
 
@@ -253,6 +260,7 @@ impl<'a> App<'a> {
             last_draw: 0,
             size: size(),
             sessions: Vec::new(),
+            killed: None,
         }
     }
 
@@ -282,20 +290,31 @@ impl<'a> App<'a> {
         }
         let mut tick = tokio::time::interval(Duration::from_millis(16));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut stop = std::pin::pin!(term::stop_signal());
+        let mut term_errors = 0;
         loop {
             enum Step {
                 Wire(Option<WireEvent>),
                 Term(Option<std::io::Result<TermEvent>>),
                 Bg(Bg),
                 Tick,
+                Stop(i32),
             }
             let step = tokio::select! {
                 ev = async { rx.as_mut().expect("guarded").recv().await }, if rx.is_some() => Step::Wire(ev),
                 k = keys.next() => Step::Term(k),
                 Some(b) = self.futs.next(), if !self.futs.is_empty() => Step::Bg(b),
+                code = &mut stop => Step::Stop(code),
                 _ = tick.tick() => Step::Tick,
             };
+            if !matches!(step, Step::Term(Some(Err(_)))) {
+                term_errors = 0;
+            }
             match step {
+                Step::Stop(code) => {
+                    self.killed = Some(code);
+                    return Ok(Exit::Detach);
+                }
                 Step::Wire(None) => return Err(Error::unreachable("the connection closed")),
                 Step::Wire(Some(ev)) => {
                     self.wire_event(ev)?;
@@ -306,7 +325,12 @@ impl<'a> App<'a> {
                     self.dirty = true;
                 }
                 Step::Term(None) => self.exit = Some(Exit::Detach),
-                Step::Term(Some(Err(_))) => {}
+                Step::Term(Some(Err(_))) => {
+                    term_errors += 1;
+                    if term_errors >= TERM_ERRORS {
+                        self.exit = Some(Exit::Detach);
+                    }
+                }
                 Step::Term(Some(Ok(ev))) => {
                     self.term_event(ev).await;
                     self.dirty = true;
@@ -622,16 +646,16 @@ impl<'a> App<'a> {
     }
 
     fn interrupt(&mut self) {
+        // Messages not sent yet come back to the prompt, connected or not.
+        for p in self.m.take_pending() {
+            self.ed.restore(&p.text);
+        }
         let Some(w) = self.wire.clone() else { return };
         if self.m.read_only {
             self.m.error("read-only: cannot interrupt from this terminal");
             return;
         }
         let now = now_ms();
-        // Messages not sent yet come back to the prompt.
-        for p in self.m.take_pending() {
-            self.ed.restore(&p.text);
-        }
         if !self.m.turn_running() && self.m.queued.is_empty() {
             return;
         }
@@ -760,7 +784,11 @@ impl<'a> App<'a> {
                 let guard = self.ask_focus && now - self.ask_focus_at < ASK_GUARD_MS;
                 self.last_key = now;
                 if guard {
-                    return;
+                    match guarded(&k) {
+                        Guarded::Swallow => return,
+                        Guarded::ToPrompt => self.ask_focus = false,
+                        Guarded::Pass => {}
+                    }
                 }
                 self.key(k).await;
             }
@@ -771,7 +799,10 @@ impl<'a> App<'a> {
             }
             TermEvent::FocusGained => self.focused = Some(true),
             TermEvent::FocusLost => self.focused = Some(false),
-            TermEvent::Resize(w, h) => self.size = ((w as usize).max(10), (h as usize).max(4)),
+            TermEvent::Resize(w, h) => {
+                self.size = ((w as usize).max(10), (h as usize).max(4));
+                self.painter.resized(self.size.0);
+            }
             _ => {}
         }
     }
@@ -843,6 +874,8 @@ impl<'a> App<'a> {
             }
             KeyCode::Char('c') if ctrl => {
                 if !empty {
+                    // ↑ brings it back.
+                    self.ed.remember(&self.ed.expanded());
                     self.ed.clear();
                 } else if self.m.turn_running() || !self.m.queued.is_empty() {
                     self.interrupt();
@@ -869,6 +902,9 @@ impl<'a> App<'a> {
                 } else if self.ask.is_some() {
                     self.ask_focus = true;
                     self.ask_focus_at = 0;
+                } else {
+                    // A paste without bracketed paste keeps its tabs.
+                    self.ed.insert("\t");
                 }
                 return;
             }
@@ -1492,6 +1528,27 @@ impl<'a> App<'a> {
     }
 }
 
+/// What a key does while an ask that just took the keyboard is guarded.
+#[derive(Debug, PartialEq, Eq)]
+enum Guarded {
+    /// Would answer the ask: dropped.
+    Swallow,
+    /// Typing: back to the prompt, where it lands.
+    ToPrompt,
+    Pass,
+}
+
+fn guarded(k: &KeyEvent) -> Guarded {
+    if k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
+        return Guarded::Pass;
+    }
+    match k.code {
+        KeyCode::Enter | KeyCode::Char('y' | 'n' | 'a' | 'A') => Guarded::Swallow,
+        KeyCode::Char(_) => Guarded::ToPrompt,
+        _ => Guarded::Pass,
+    }
+}
+
 /// `↑ billing → workspace/billing · 412 files · 3.1 MB`, from what the push
 /// returned.
 fn push_line(dir: &std::path::Path, r: &Value) -> String {
@@ -1578,6 +1635,8 @@ pub async fn pick(ctx: &Ctx, only: Option<Vec<String>>) -> Result<Option<String>
     }));
     let mut fact = String::from("loading…");
     let mut extra: Vec<Session> = Vec::new();
+    let mut stop = std::pin::pin!(term::stop_signal());
+    let mut killed = None;
     let result = loop {
         let (w, h) = size();
         let lines = list.render(w);
@@ -1614,6 +1673,10 @@ pub async fn pick(ctx: &Ctx, only: Option<Vec<String>>) -> Result<Option<String>
                 }
                 Err(e) => fact = format!("{} {}", g().fail, e.message),
             },
+            code = &mut stop => {
+                killed = Some(code);
+                break None;
+            }
             k = keys.next() => match k {
                 None => break None,
                 Some(Ok(TermEvent::Key(k))) if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) => match list.key(&k) {
@@ -1628,6 +1691,9 @@ pub async fn pick(ctx: &Ctx, only: Option<Vec<String>>) -> Result<Option<String>
     let _ = extra;
     let _ = painter.finish(&mut std::io::stdout(), &[], 80);
     drop(guard);
+    if let Some(code) = killed {
+        std::process::exit(code);
+    }
     Ok(result)
 }
 
@@ -1640,6 +1706,17 @@ mod tests {
         let r = json!({"path": "workspace/billing", "files": 412, "bytes": 3_250_000});
         assert_eq!(push_line(std::path::Path::new("/src/billing"), &r), format!("{} billing {} workspace/billing {} 412 files {} 3.1 MB", g().up, g().arrow, g().mid, g().mid));
         assert_eq!(push_line(std::path::Path::new("x"), &json!({})), format!("{} x {} workspace/x", g().up, g().arrow));
+    }
+
+    #[test]
+    fn the_ask_guard_drops_answers_and_lets_typing_through() {
+        let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        assert_eq!(guarded(&key(KeyCode::Char('y'))), Guarded::Swallow);
+        assert_eq!(guarded(&key(KeyCode::Enter)), Guarded::Swallow);
+        assert_eq!(guarded(&key(KeyCode::Char('u'))), Guarded::ToPrompt);
+        assert_eq!(guarded(&key(KeyCode::Char('1'))), Guarded::ToPrompt);
+        assert_eq!(guarded(&key(KeyCode::Esc)), Guarded::Pass);
+        assert_eq!(guarded(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)), Guarded::Pass);
     }
 
     #[test]

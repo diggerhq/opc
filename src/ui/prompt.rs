@@ -6,6 +6,8 @@ use super::{Seg, Sty, TLine, char_width, g, width};
 
 /// A paste longer than this many lines is shown collapsed.
 const COLLAPSE_LINES: usize = 1000;
+/// Tab stops in the prompt line.
+const TAB: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Edit {
@@ -87,7 +89,7 @@ impl Editor {
     pub fn insert(&mut self, s: &str) {
         for c in s.chars() {
             let c = if c == '\r' { '\n' } else { c };
-            if c.is_control() && c != '\n' {
+            if c.is_control() && c != '\n' && c != '\t' {
                 continue;
             }
             self.buf.insert(self.cur, c);
@@ -359,21 +361,29 @@ impl Editor {
         let mut cursor = (0, pw);
         let text: Vec<char> = if self.hidden { self.buf.iter().map(|_| g().secret_dot.chars().next().unwrap_or('*')).collect() } else { self.buf.clone() };
         for (i, c) in text.iter().enumerate() {
-            if i == self.cur {
-                cursor = (rows.len() - 1, col);
-            }
             if *c == '\n' {
+                if i == self.cur {
+                    cursor = (rows.len() - 1, col);
+                }
                 rows.push(Vec::new());
                 col = pw;
                 continue;
             }
-            let cw = char_width(*c);
+            // A tab shows as spaces to the next multiple of 4.
+            let tab = TAB - (col - pw) % TAB;
+            let cw = if *c == '\t' { tab } else { char_width(*c) };
             if col + cw > w {
                 rows.push(Vec::new());
                 col = pw;
             }
+            if i == self.cur {
+                cursor = (rows.len() - 1, col);
+            }
             if let Some(r) = rows.last_mut() {
-                r.push(*c);
+                match c {
+                    '\t' => r.extend(std::iter::repeat_n(' ', cw.min(w - col))),
+                    _ => r.push(*c),
+                }
             }
             col += cw;
         }
@@ -481,5 +491,26 @@ mod tests {
         assert_eq!(cur, (0, 7));
         e.hidden = true;
         assert_eq!(e.render(40, "").0[0].plain(), "> •••••");
+    }
+
+    #[test]
+    fn tabs_are_kept_and_shown_as_spaces() {
+        let mut e = Editor::new(vec![]);
+        e.paste("build:\n\tgo build ./...");
+        assert_eq!(e.expanded(), "build:\n\tgo build ./...");
+        let (rows, cur) = e.render(40, "");
+        assert_eq!(rows[1].plain(), "      go build ./...");
+        assert_eq!(cur, (1, 20));
+    }
+
+    #[test]
+    fn the_cursor_goes_to_the_next_row_at_a_wrap() {
+        let mut e = Editor::new(vec![]);
+        typed(&mut e, "abcdefgh");
+        e.key(&k(KeyCode::Left));
+        // "> abcdefg" fills 9 columns; "h", under the cursor, wraps.
+        let (rows, cur) = e.render(9, "");
+        assert_eq!(rows[1].plain(), "  h");
+        assert_eq!(cur, (1, 2));
     }
 }

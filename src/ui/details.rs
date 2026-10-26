@@ -220,16 +220,17 @@ pub fn page(text: &str) -> std::io::Result<()> {
 }
 
 /// Opens `$VISUAL` or `$EDITOR` (`vi` when unset) on `text` and returns what
-/// was saved.
+/// was saved. The draft is private (0700 directory, 0600 file); an editor
+/// that exits with an error (`:cq`) leaves the message as it was.
 pub fn edit(text: &str) -> std::io::Result<String> {
     let editor = std::env::var("VISUAL").ok().filter(|p| !p.trim().is_empty()).or_else(|| std::env::var("EDITOR").ok().filter(|p| !p.trim().is_empty())).unwrap_or_else(|| "vi".into());
-    let dir = std::env::temp_dir().join(format!("opc-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
+    let dir = std::env::temp_dir().join(format!("opc-{}-{}", std::process::id(), crate::ids::random_base32(8)));
     let path = dir.join("message.md");
-    std::fs::write(&path, text)?;
+    crate::config::write_private(&path, text.as_bytes()).map_err(|e| std::io::Error::other(e.message))?;
     let status = super::term::handed_over(|| std::process::Command::new("sh").arg("-c").arg(format!("{editor} \"$1\"")).arg("sh").arg(&path).status());
     let r = match status {
-        Ok(_) => std::fs::read_to_string(&path),
+        Ok(s) if s.success() => std::fs::read_to_string(&path),
+        Ok(s) => Err(std::io::Error::other(format!("exited with {}; the message is unchanged", s.code().map_or("a signal".into(), |c| format!("status {c}"))))),
         Err(e) => Err(e),
     };
     let _ = std::fs::remove_dir_all(&dir);
