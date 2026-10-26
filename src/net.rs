@@ -199,7 +199,9 @@ fn env_any(names: &[&str]) -> Option<String> {
 }
 
 /// Opens a TCP connection to `host:port`, trying every address with a 250 ms
-/// stagger and keeping the first to connect.
+/// stagger and keeping the first to connect. An attempt that fails starts the
+/// next one at once (RFC 8305): without IPv6, the IPv6 attempt fails in
+/// microseconds and must not hold IPv4 back for the whole stagger.
 pub async fn dial_tcp(host: &str, port: u16) -> Result<TcpStream> {
     let addrs: Vec<SocketAddr> = match host.parse::<std::net::IpAddr>() {
         Ok(ip) => vec![SocketAddr::new(ip, port)],
@@ -211,33 +213,48 @@ pub async fn dial_tcp(host: &str, port: u16) -> Result<TcpStream> {
     if addrs.is_empty() {
         return Err(Error::unreachable(format!("cannot resolve {host}")));
     }
-    let addrs = interleave_families(addrs);
+    dial_addrs(host, port, interleave_families(addrs)).await
+}
+
+async fn dial_addrs(host: &str, port: u16, addrs: Vec<SocketAddr>) -> Result<TcpStream> {
+    let mut pending = addrs.into_iter();
     let mut set = tokio::task::JoinSet::new();
-    for (i, addr) in addrs.into_iter().enumerate() {
-        set.spawn(async move {
-            if i > 0 {
-                tokio::time::sleep(Duration::from_millis(250 * i as u64)).await;
-            }
-            TcpStream::connect(addr).await
-        });
-    }
     let mut last_err = None;
-    while let Some(res) = set.join_next().await {
-        match res {
-            Ok(Ok(s)) => {
-                set.abort_all();
-                let _ = s.set_nodelay(true);
-                return Ok(s);
+    loop {
+        if let Some(addr) = pending.next() {
+            set.spawn(TcpStream::connect(addr));
+        }
+        let more = pending.len() > 0;
+        let stagger = tokio::time::sleep(STAGGER);
+        tokio::pin!(stagger);
+        // Wait for a result, or for the stagger when another address is left to start.
+        loop {
+            tokio::select! {
+                res = set.join_next(), if !set.is_empty() => match res {
+                    Some(Ok(Ok(s))) => {
+                        set.abort_all();
+                        let _ = s.set_nodelay(true);
+                        return Ok(s);
+                    }
+                    Some(Ok(Err(e))) => {
+                        last_err = Some(e);
+                        if more { break; }
+                    }
+                    _ => {}
+                },
+                _ = &mut stagger, if more => break,
             }
-            Ok(Err(e)) => last_err = Some(e),
-            Err(_) => {}
+            if set.is_empty() && !more {
+                return Err(Error::unreachable(format!(
+                    "cannot connect to {host}:{port}: {}",
+                    last_err.map(|e| e.to_string()).unwrap_or_default()
+                )));
+            }
         }
     }
-    Err(Error::unreachable(format!(
-        "cannot connect to {host}:{port}: {}",
-        last_err.map(|e| e.to_string()).unwrap_or_default()
-    )))
 }
+
+const STAGGER: Duration = Duration::from_millis(250);
 
 fn interleave_families(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     let (v6, v4): (Vec<_>, Vec<_>) = addrs.into_iter().partition(|a| a.is_ipv6());
@@ -360,6 +377,26 @@ pub fn query_string(pairs: &[(String, String)]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_failed_attempt_starts_the_next_at_once() {
+        let open = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let refused = closed.local_addr().unwrap();
+        drop(closed);
+        let t = std::time::Instant::now();
+        let s = super::dial_addrs("test", 0, vec![refused, open.local_addr().unwrap()]).await.unwrap();
+        assert_eq!(s.peer_addr().unwrap(), open.local_addr().unwrap());
+        assert!(t.elapsed() < super::STAGGER, "waited {:?}", t.elapsed());
+    }
+
+    #[tokio::test]
+    async fn every_address_failing_is_an_error() {
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let refused = closed.local_addr().unwrap();
+        drop(closed);
+        assert!(super::dial_addrs("test", 0, vec![refused, refused]).await.is_err());
+    }
+
     use super::*;
 
     #[test]
