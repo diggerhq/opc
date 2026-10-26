@@ -8,16 +8,15 @@ description: "Every error code, over HTTP and WebSocket, and how turns fail."
 Over HTTP, an error is a status and a body:
 
 ```json
-{ "error": { "code": "ask_closed", "message": "This ask was already answered.", "ask": { "…": "…" } } }
+{ "error": { "code": "ask_closed", "message": "This ask was already answered.", "requestId": "req_8k2m4q7x1v9c", "ask": { "…": "…" } } }
 ```
 
 Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `status` added. See [Methods](/api/websocket/methods#errors).
 
 - **`code`** is stable and snake_case. Branch on it.
 - **`message`** is one sentence for people. It can change. Do not parse it.
+- **`requestId`** is the request, for support. Every HTTP response carries it as the `x-request-id` header too.
 - Some codes add fields, listed below. Unknown fields may appear.
-
-Every response, including errors, has an `x-request-id` header. Include it when you contact support.
 
 ## Codes
 
@@ -46,13 +45,14 @@ Every response, including errors, has an `x-request-id` header. Include it when 
 | `409` | `feature_unavailable` | `feature` | The session's `capabilities.features` lacks it |
 | `409` | `computer_not_set_up` | | Finish setting up your computer on the dashboard |
 | `413` | `too_large` | `bytes`, `files` | Over a [limit](/api/reference/limits) |
+| `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. See [Versioning](/api/reference/versioning#opc). |
 | `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. |
 | `429` | `queue_full` | | 20 turns are already queued |
 | `500` | `internal` | | Our fault. Retry with the same idempotency key. |
 | `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting or being updated. Retry. |
 | `503` | `unavailable` | `retryAfterMs` | A temporary failure. Retry. |
 
-The WebSocket adds `too_far_behind`, `too_many_attached` and `too_many_terminals`, which have no HTTP status of their own. They are sent as `409`.
+The WebSocket adds `too_far_behind`, `too_many_attached` and `too_many_terminals`, with `status: 409`, for methods no HTTP route has.
 
 ## What to retry
 

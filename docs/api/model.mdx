@@ -18,7 +18,7 @@ Events are never changed or removed. An event with a `seq` at or below one you a
 
 ### Deltas are not in the log
 
-While the agent writes, its text also streams as **deltas**: `message.delta` and `reasoning.delta` events, sent only over a WebSocket that asked for them. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed` or `reasoning.completed` event, which replaces whatever deltas you drew.
+While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta` events, sent only over a WebSocket that asked for them. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew. Text and reasoning deltas are tied to their block by `blockId`, tool output by `callId`.
 
 A client that misses deltas, because it connected late, reconnected or was too slow, loses nothing but the preview. See [Flow control](/api/websocket/flow-control).
 

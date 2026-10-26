@@ -40,7 +40,7 @@ Any language with HTTP and WebSocket clients will do. A correct client:
 
 1. **Keeps a cursor per session.** The last `seq` it applied, and nothing else, is what it needs to resume.
 2. **Skips events at or below its cursor.** Repeats happen across reconnects, and are safe to skip.
-3. **Replaces deltas with completed blocks.** Keyed by `blockId`.
+3. **Replaces deltas with completed blocks.** Text and reasoning keyed by `blockId`, tool output by `callId`.
 4. **Sends an idempotency key with every message**, and the same key on retry.
 5. **Reconnects before `4001`**, opening the new connection before closing the old.
 6. **Ignores what it does not know**: fields, event types, statuses. See [Versioning](/api/reference/versioning).

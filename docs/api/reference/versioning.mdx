@@ -34,4 +34,6 @@ Do not check a version to decide what a session can do. Read [`capabilities`](/a
 
 ## opc
 
-`opc` checks its version against the server's oldest supported one when it connects. An `opc` too old to work exits with code `2` and says how to update. An `opc` that works but is out of date says so once a day, at most.
+`opc` is the one client whose builds the server knows. Every request it makes carries `User-Agent: opc/0.1.0`, and when a build is retired, which happens at least 6 months after the one that replaced it shipped, every HTTP request from it is answered `426 upgrade_required` with `minVersion`, and every connection it opens is closed with `4400`. `opc` then exits with code `2` and says which version to install. Nothing is retired without an entry in the [changelog](/changelog) first.
+
+An `opc` that works but is out of date is told so in the `x-opc-latest` header of any response, and says so once a day at most. Other clients are not checked: for them, only the protocol version above matters.

@@ -36,7 +36,8 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
 - **Ids** have a type prefix: `cs_` sessions, `tn_` turns, `ak_` asks, `ev_` events, `usr_` people. Treat them as opaque strings of at most 40 characters.
 - **Absent and null.** A field that does not apply is `null`. Optional request fields may be omitted.
 - **New fields** can appear in any response or event at any time. Ignore what you do not know. See [Versioning](/api/reference/versioning).
-- **Errors** are `{ "error": { "code", "message" } }` with a stable `code` to branch on. See [Errors](/api/reference/errors).
+- **Errors** are `{ "error": { "code", "message", "requestId" } }` with a stable `code` to branch on. See [Errors](/api/reference/errors).
+- **Every response** carries an `x-request-id` header. Quote it to support.
 - **Writes are idempotent** with an `Idempotency-Key` header. See [Idempotency](/api/reference/idempotency).
 - **Lists** are paginated with `limit` and `cursor`, and return `nextCursor`, `null` on the last page.
 
@@ -53,6 +54,7 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
 | `GET` | [`/sessions/{id}/turns`](/api/http/turns#list-turns) | Lists turns |
 | `GET` | [`/sessions/{id}/turns/{turnId}`](/api/http/turns#get-a-turn) | One turn |
 | `GET` | [`/sessions/{id}/asks`](/api/http/asks#list-asks) | Lists asks |
+| `GET` | [`/sessions/{id}/asks/{askId}`](/api/http/asks#get-an-ask) | One ask |
 | `POST` | [`/sessions/{id}/asks/{askId}/answer`](/api/http/asks#answer-an-ask) | Answers an approval or question |
 | `POST` | [`/sessions/{id}/asks/{askId}/dismiss`](/api/http/asks#dismiss-an-ask) | Closes an ask without an answer |
 | `POST` | [`/sessions/{id}/interrupt`](/api/http/control#interrupt) | Stops the running turn and every queued one |
@@ -72,14 +74,14 @@ The WebSocket's methods are on [Methods](/api/websocket/methods).
 
 ## Next to the serverless agents API
 
-OpenComputer's [serverless agents](https://docs.opencomputer.dev) have a session API of the same family, and this one keeps to it wherever the two describe the same thing: the `x-api-key` header, `POST /sessions` and `GET /sessions` with `{ sessions, nextCursor }`, `POST /sessions/{id}/turns` with `queue | steer | interrupt` and a `{ turnId, status, duplicate }` receipt, `{ events }` pages, the `message.*`, `turn.*`, `tool.*`, `usage.recorded` and `runtime.*` event names, the error shape and the turn failure codes. A client that reads one reads most of the other.
+OpenComputer's [serverless agents](https://docs.opencomputer.dev) have a session API of the same family, and this one keeps to it wherever the two describe the same thing: the `x-api-key` header, `POST /sessions` and `GET /sessions` with `{ sessions, nextCursor }`, `POST /sessions/{id}/turns` with `queue | steer | interrupt` and `duplicate` on a repeated key, `{ events }` pages, the `message.*`, `turn.*`, `tool.*`, `usage.recorded` and `runtime.*` event names, the error shape and the turn failure codes. A client that reads one reads most of the other.
 
 Where this API differs, it is on purpose, because a session that people watch keystroke by keystroke needs more than one a program polls:
 
 | Here | Serverless | Why |
 | --- | --- | --- |
 | [Asks](/api/http/asks): `approval`, `question` and `secret`, one object, answered once | `question.*` events, approvals as tool-level decisions | A client renders every kind of "the agent needs you" the same way, and the first answer from any client wins |
-| `delivery` on the send receipt, and a `turnId` for held and steered messages | `status: "held"` with no turn | A client shows at once what happened to a message, and a held message belongs to the turn it will join |
+| Sending returns `{ turn, delivery, duplicate }`: the Turn itself, and what happened to the message, with a turn for held and steered messages too | `{ turnId, status, duplicate }`, and `status: "held"` with no turn | The object every other route returns, so a client has the turn's author, input and times without a second request, and shows at once what happened to its message |
 | `message.delta`, `reasoning.delta` and `tool.delta` carry a `blockId` | Deltas are concatenated per turn | Blocks interleave with tool calls; a client cannot attach text to the right place without it |
 | `GET /events` pages carry `lastSeq` | `{ events }` only | A client knows whether it is caught up without another request |
 | Session status: `starting`, `running`, `waiting`, `idle`, `suspended` | Eleven statuses including `ended` | A session here never ends; what remains is what a client needs to draw |

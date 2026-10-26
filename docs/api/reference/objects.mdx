@@ -19,7 +19,7 @@ New fields may appear in any object at any time. Ignore the ones you do not know
   "settings": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits" },
   "capabilities": { "…": "see below" },
   "activeTurnId": "tn_4m8q2x7c1v9b",
-  "queued": [{ "turnId": "tn_9x2c7v1b4m8q", "input": "then update the changelog", "author": { "…": "Actor" } }],
+  "queued": [{ "id": "tn_9x2c7v1b4m8q", "status": "queued", "input": "then update the changelog", "…": "Turn" }],
   "asks": [],
   "lastTurn": { "id": "tn_1b4m8q9x2c7v", "status": "completed", "endedAt": "2026-10-26T09:12:44.120Z", "text": "Done. The PR is #482.", "error": null, "reason": null },
   "lastText": "I'll start by running the test a few times",
@@ -44,7 +44,7 @@ New fields may appear in any object at any time. Ignore the ones you do not know
 | `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now |
 | `capabilities` | [Capabilities](#capabilities) | What this session supports and allows |
 | `activeTurnId` | string or null | The running turn |
-| `queued` | array | Turns waiting to run, in order: `{ turnId, input, author }` |
+| `queued` | array of [Turn](#turn) | Turns waiting to run, in the order they will run |
 | `asks` | array of [Ask](#ask) | Open asks, oldest first. Empty unless `status` is `waiting`. |
 | `lastTurn` | object or null | The most recent turn that ended: `{ id, status, endedAt, text, error, reason }`. `text` is its last agent message. `error` is a [turn failure](/api/reference/errors#turn-failures) when `status` is `failed`. `reason` is set when `status` is `cancelled`. |
 | `lastText` | string or null | The first 200 characters of the last message the agent wrote, for lists |

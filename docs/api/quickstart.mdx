@@ -23,7 +23,9 @@ curl -s "$API/sessions" \
 ```json
 {
   "session": { "id": "cs_7f3a9k2m4q8r1t6v", "status": "starting", "title": "Which of our services still use Node 18?", "…": "…" },
-  "turn": { "turnId": "tn_4m8q2x7c1v9b", "status": "queued", "delivery": "started", "duplicate": false }
+  "turn": { "id": "tn_4m8q2x7c1v9b", "status": "queued", "…": "…" },
+  "delivery": "started",
+  "duplicate": false
 }
 ```
 
@@ -63,8 +65,8 @@ const { session, turn } = await computer.sessions.create({
 for await (const event of computer.sessions.stream(session.id, { deltas: true })) {
   if (event.type === "message.delta") process.stdout.write(event.data.text);
   if (event.type === "message.completed") process.stdout.write("\n");
-  if (event.type === "turn.completed" && event.turnId === turn.turnId) break;
-  if (event.type === "turn.failed" && event.turnId === turn.turnId) throw new Error(event.data.message);
+  if (event.type === "turn.completed" && event.turnId === turn.id) break;
+  if (event.type === "turn.failed" && event.turnId === turn.id) throw new Error(event.data.message);
 }
 ```
 

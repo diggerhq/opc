@@ -37,7 +37,7 @@ Replaces the conversation so far with a summary, freeing context. The agent keep
 | --- | --- |
 | `instructions` | Optional. What the summary must keep, such as `keep the list of failing tests` |
 
-Compacting runs as its own turn: queued behind a running one, or started at once when idle. The response is a [send receipt](/api/http/turns#send-a-message), `202 { "turnId", "status", "delivery", "duplicate" }`, not the session: it is the one route here that creates a turn. The turn's events include `session.compacted` with the context before and after.
+Compacting runs as its own turn: queued behind a running one, or started at once when idle. The response is what [sending a message](/api/http/turns#send-a-message) returns, `202 { "turn": Turn, "delivery", "duplicate" }`, not the session: it is the one route here that creates a turn. The turn's events include `session.compacted` with the context before and after.
 
 `409 feature_unavailable` when `capabilities.features.compact` is `false`.
 

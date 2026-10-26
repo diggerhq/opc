@@ -28,13 +28,15 @@ The response is `201`:
 ```json
 {
   "session": { "id": "cs_7f3a9k2m4q8r1t6v", "status": "starting", "…": "…" },
-  "turn": { "turnId": "tn_4m8q2x7c1v9b", "status": "queued", "delivery": "started", "duplicate": false }
+  "turn": { "id": "tn_4m8q2x7c1v9b", "status": "queued", "input": "fix the flaky test in segment.test.ts", "…": "…" },
+  "delivery": "started",
+  "duplicate": false
 }
 ```
 
-`turn` is the [send receipt](/api/http/turns#send-a-message) for `input`, or `null` without it. The response returns as soon as the session exists. It does not wait for the agent to start: watch `status`, or the `runtime.connected` event.
+`turn` and `delivery` are what [sending](/api/http/turns#send-a-message) `input` returned, or `null` without it. The response returns as soon as the session exists. It does not wait for the agent to start: watch `status`, or the `runtime.connected` event.
 
-With an `Idempotency-Key` that already created a session, the response is `200` with the same session and `turn.duplicate: true`. See [Idempotency](/api/reference/idempotency).
+With an `Idempotency-Key` that already created a session, the response is `200` with the same session, as it is now, and `duplicate: true`. See [Idempotency](/api/reference/idempotency).
 
 <Tip>
 To give the agent files before its first message, create the session without `input`, [upload](/api/http/workspace#upload) the files, then [send](/api/http/turns#send-a-message) the message. `opc -p --push` does this. Uploading does not wait for the agent to start, so the three requests take little more than one.

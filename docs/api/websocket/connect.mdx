@@ -44,7 +44,7 @@ Every message is [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one per 
 ```
 
 ```json
-{ "jsonrpc": "2.0", "id": 7, "result": { "turnId": "tn_4m8q2x7c1v9b", "status": "running", "delivery": "steered", "duplicate": false } }
+{ "jsonrpc": "2.0", "id": 7, "result": { "turn": { "id": "tn_4m8q2x7c1v9b", "status": "running", "…": "…" }, "delivery": "steered", "duplicate": false } }
 ```
 
 - `id` is yours: a number or a string. Responses can come back in a different order than requests, so match on `id`.
@@ -52,7 +52,7 @@ Every message is [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one per 
 - Binary frames carry terminal data only. See [Terminals](/api/websocket/pty).
 - A message is at most 1 MiB.
 
-The response to a request is always sent before any event the request caused. When the response to `turns.send` arrives, you know the `turnId` before you see its `message.received`.
+The response to a request is always sent before any event the request caused. When the response to `turns.send` arrives, you know the turn's `id` before you see its `message.received`.
 
 ## Keeping it alive
 

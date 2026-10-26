@@ -23,15 +23,20 @@ curl -s "$API/sessions/cs_7f3a9k2m4q8r1t6v/turns" -H "x-api-key: $OPENCOMPUTER_A
 The response is `202`, or `200` for a repeated `Idempotency-Key`:
 
 ```json
-{ "turnId": "tn_9x2c7v1b4m8q", "status": "queued", "delivery": "queued", "duplicate": false }
+{
+  "turn": { "id": "tn_9x2c7v1b4m8q", "status": "queued", "mode": "queue", "input": "also add a regression test", "…": "…" },
+  "delivery": "queued",
+  "duplicate": false
+}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `turnId` | The turn that carries the message. For `steered` and `held`, the running turn, not a new one. |
-| `status` | That turn's status now |
+| `turn` | The [Turn](/api/reference/objects#turn) that carries the message, as it is now. For `steered` and `held`, the running turn, with the message in its `steering`, not a new one. |
 | `delivery` | What happened to the message: `started`, `queued`, `steered` or `held` |
-| `duplicate` | `true` when the key was already used for this request. Nothing new was sent. |
+| `duplicate` | `true` when the key was already used for this request. Nothing new was sent, and `turn` is that turn as it is now. |
+
+Every route that sends a message returns this shape: here, [creating a session](/api/http/sessions#create-a-session) with `input`, and [compacting](/api/http/control#compact).
 
 | `delivery` | Means | Recorded as |
 | --- | --- | --- |
@@ -58,7 +63,7 @@ The API defaults to `queue`, so that two programs sending at once never change e
 
 ### Sending to a suspended session
 
-Send as usual. The session resumes, which takes a few seconds, and the message runs. The response does not wait for the resume: it returns `delivery: "started"` and `status: "queued"` at once.
+Send as usual. The session resumes, which takes a few seconds, and the message runs. The response does not wait for the resume: it returns `delivery: "started"` with the turn still `queued`, at once.
 
 ### Errors
 

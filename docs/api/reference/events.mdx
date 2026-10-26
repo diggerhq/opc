@@ -117,9 +117,9 @@ A secret ask's `answer` names the scope the secret was set for, never its value.
 | Type | When | `data` |
 | --- | --- | --- |
 | `runtime.starting` | Something has to start before the agent can work | `phase`: `computer` when the computer was asleep, `agent` when only the agent process starts |
-| `runtime.connected` | The agent process is ready | `warm`: `true` when a pre-started process was used, `resumed`: `true` when the session was resumed, `ms`: from start to ready |
+| `runtime.connected` | The agent process is ready | `warm`: `true` when a pre-started process was used, `resumed`: `true` when the session was resumed, `durationMs`: from start to ready |
 | `runtime.suspended` | The agent process stopped | `reason`: `idle` or `requested` |
-| `runtime.resumed` | The suspended session is ready again | `ms` |
+| `runtime.resumed` | The suspended session is ready again | `durationMs` |
 
 ## Files and shells
 

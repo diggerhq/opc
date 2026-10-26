@@ -89,7 +89,7 @@ opc send 7f3a --mode queue "then update the changelog"
 echo "stop, the bug is in the parser" | opc send 7f3a --mode interrupt -
 ```
 
-Sends a message and returns as soon as the session accepted it. `--mode` is `steer` (the default, as in the terminal), `queue` or `interrupt`. `-` reads the message from standard input. Prints the turn id; `--json` prints `{ sessionId, turnId, status }`.
+Sends a message and returns as soon as the session accepted it. `--mode` is `steer` (the default, as in the terminal), `queue` or `interrupt`. `-` reads the message from standard input. Prints the turn id; `--json` prints what the API returned, `{ turn, delivery, duplicate }`.
 
 ## Wait for a session: `opc wait`
 

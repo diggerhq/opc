@@ -63,7 +63,7 @@ Stops sending a session's events. `{ "sessionId" }`. The result is `{}`. Events 
 
 ## Send
 
-`{ sessionId, input, mode?, idempotencyKey? }`. The result is the [send receipt](/api/http/turns#send-a-message).
+`{ sessionId, input, mode?, idempotencyKey? }`. The result is what [`POST /turns`](/api/http/turns#send-a-message) returns: `{ turn, delivery, duplicate }`.
 
 `idempotencyKey` does what the `Idempotency-Key` header does over HTTP. Send one with every message: after a reconnect you cannot know whether a request sent just before the drop arrived, and resending with the same key is safe. Keys are shared between HTTP and WebSocket. See [Idempotency](/api/reference/idempotency).
 

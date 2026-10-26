@@ -23,7 +23,7 @@ With `--json`, a failing command also prints one object to standard error:
 | `code` | Exit | Meaning |
 | --- | --- | --- |
 | `usage` | 2 | The command line is wrong. `message` says how. |
-| `unsupported_version` | 2 | Upgrade `opc`. `minimumVersion` says to what. |
+| `upgrade_required` | 2 | This build of `opc` is retired. `minVersion` says what to install. The API's code. |
 | `session_ambiguous` | 2 | The prefix or words match several sessions. `matches` lists them. |
 | `session_not_found` | 2 | No session matches, or you cannot see it |
 | `not_logged_in` | 3 | No credential in the environment or the configuration file |

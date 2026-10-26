@@ -20,6 +20,14 @@ GET /sessions/{id}/asks
 
 Returns `{ "asks": [Ask…], "nextCursor" }`, newest first.
 
+## Get an ask
+
+```http
+GET /sessions/{id}/asks/{askId}
+```
+
+Returns `{ "ask": Ask }`, open or closed. A program that answered an ask from one place and wants to know how it closed, or that holds an ask id from an event, reads it here. `404 ask_not_found` when the ask is not in this session.
+
 ## Answer an ask
 
 ```http

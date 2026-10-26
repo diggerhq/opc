@@ -86,7 +86,7 @@ Sends a message and returns when it is accepted.
 | Option | Does |
 | --- | --- |
 | `--mode <mode>` | `steer` (default), `queue` or `interrupt` |
-| `--json` | Prints the [send receipt](/api/http/turns#send-a-message): `{ sessionId, turnId, status, delivery }` |
+| `--json` | Prints what [sending](/api/http/turns#send-a-message) returned: `{ turn, delivery, duplicate }` |
 
 ## opc wait
 
@@ -122,7 +122,7 @@ Interrupts the running turn and cancels queued ones.
 | Option | Does |
 | --- | --- |
 | `--no-wait` | Return as soon as the interrupt is recorded, instead of when the turn has stopped |
-| `--json` | Prints the cancelled turns: `[{ turnId, forced }]` |
+| `--json` | Prints the turns the interrupt reached: `{ "cancelled": [Turn…] }`. With `--no-wait`, the one that was running may still be `cancelling`. |
 
 ## opc push
 
