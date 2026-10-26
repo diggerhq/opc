@@ -72,10 +72,10 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 
 | Type | Recorded | When | `data` |
 | --- | --- | --- | --- |
-| `message.delta` | No | The agent wrote more of a message | `blockId`, `text`: the new fragment |
-| `message.completed` | Yes | A message is complete | `blockId`, `text`: all of it |
-| `reasoning.delta` | No | The model reasoned further | `blockId`, `text` |
-| `reasoning.completed` | Yes | A reasoning block is complete | `blockId`, `text`, `redacted`: `true` when the model returned no readable reasoning |
+| `message.delta` | No | The agent wrote more of a message | `blockId`, `parentCallId`, `text`: the new fragment |
+| `message.completed` | Yes | A message is complete | `blockId`, `parentCallId`, `text`: all of it |
+| `reasoning.delta` | No | The model reasoned further | `blockId`, `parentCallId`, `text` |
+| `reasoning.completed` | Yes | A reasoning block is complete | `blockId`, `parentCallId`, `text`, `redacted`: `true` when the model returned no readable reasoning, `durationMs` |
 
 A turn writes several blocks: text, then tool calls, then more text. `blockId` ties a block's deltas to its completed event. It is unique within the turn. Concatenate the deltas of one `blockId` in arrival order. When the completed event arrives, replace them with its `text`.
 
@@ -83,12 +83,14 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 
 | Type | Recorded | When | `data` |
 | --- | --- | --- | --- |
-| `tool.started` | Yes | The agent called a tool | `tool`, `callId`, `title`, `input` |
+| `tool.started` | Yes | The agent called a tool | `tool`, `callId`, `parentCallId`, `title`, `input` |
 | `tool.delta` | No | A running tool produced output, such as a command's terminal output | `callId`, `text` |
-| `tool.completed` | Yes | The tool returned | `tool`, `callId`, `title`, `output`, `durationMs` |
+| `tool.completed` | Yes | The tool returned | `tool`, `callId`, `title`, `output`, `changes`, `durationMs` |
 | `tool.failed` | Yes | The tool returned an error, or its turn ended before it did | `tool`, `callId`, `title`, `message`, `settledBy` |
 
 - `tool` is the tool's name, such as `Bash`, `Edit`, `Read` or `mcp__linear__create_issue`. `title` is one line for display, such as the command or the file.
+- `parentCallId` is `null`, or the `callId` of the subagent call this call was made inside. Text and reasoning events carry it too, so a client can nest a subagent's work under its call.
+- `changes` lists the files the call changed, as `[{ "path": "src/a.ts", "status": "modified", "added": 12, "removed": 3 }]`, with `status` one of `added`, `modified` or `deleted`. It is the same for every harness and tool that edits files, and `null` for a call that changed none. Changes a command made, such as `Bash` running a formatter, are not tracked.
 - `input` and `output` are JSON values, never JSON text. Each is cut at 64 KiB, with `truncated: true` beside it when it was.
 - Every `tool.started` is followed by exactly one `tool.completed` or `tool.failed` with its `callId`, before the turn's last event. When a turn ends with a call still open, `tool.failed` is recorded with `settledBy` naming the turn's ending event, such as `turn.cancelled`. Otherwise `settledBy` is `null`.
 

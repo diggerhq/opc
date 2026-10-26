@@ -23,8 +23,8 @@ A line that starts with `/` is a command to `opc`, not a message to the agent. `
 | `/detach` | Detaches. Same as `Ctrl+D`. |
 | `/suspend` | Suspends the session now, instead of after two idle hours |
 | `/web` | Opens the session on the dashboard |
-| `/copy` | Copies the agent's last message to your clipboard |
-| `/details` | Expands every tool card in the current turn |
+| `/copy [code]` | Copies the agent's last message, as markdown, to your clipboard. `/copy code` copies its last code block. Works over SSH and in tmux. |
+| `/details` | Opens the details view. Same as `Ctrl+O`. |
 | `/timing` | Prints the timings of this launch and the last turn |
 | `/id` | Prints the session's full id and its dashboard and Slack links |
 

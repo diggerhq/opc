@@ -8,12 +8,12 @@ description: "What opc draws, and how it fits in your terminal."
 ```
 ▸ cs 7f3a · flaky test in segment.test.ts · opus 5.5 · high · acceptEdits
 you   fix the flaky test in segment.test.ts and open a PR
-      I'll start by running the test a few times to see how it fails.
-  ✓ Bash  npm test -- segment.test.ts --repeat 20         4.1 s
-  ✓ Read  src/segment.ts                                   312 lines
-      The test depends on timer order. `flush()` runs before the
-      debounce settles when the machine is busy…
-  ⠋ Edit  src/segment.test.ts
+      I'll run the test a few times to see how it fails.
+  ✓ Ran 3 steps · Bash, Read ×2 · 6.2 s
+      The test depends on timer order: `flush()` runs before the
+      debounce settles when the machine is busy.
+  ⠋ Edit  src/segment.test.ts                                 2 s
+    2 earlier: ✓ Read · ✓ Edit +4 −1
 ────────────────────────────────────────────────────────────────
 > │
 ● running · 2 queued                                    ctrl+o details
@@ -22,35 +22,84 @@ you   fix the flaky test in segment.test.ts and open a PR
 From the top:
 
 - **The header** names the session, its model, effort and permission mode. It is printed once, when you attach, and again when a setting changes.
-- **The transcript** is the conversation. Your messages are marked `you`, messages from other people carry their name and where they wrote from (`Mo · slack`). The agent's text is indented beneath.
-- **Tool cards** are one line each: a status mark, the tool, a summary of its input and, when it ends, its duration or size. `⠋` is running, `✓` succeeded, `✗` failed.
+- **The transcript** is the conversation. Your messages are marked `you`. Messages from other people carry their name and where they wrote from, such as `Mo · slack`. The agent's text is indented beneath.
+- **Steps** are the agent's tool calls, one line for each run of them. See [Steps](#steps).
 - **The prompt line** is where you type. It is live from the moment `opc` starts, even before the connection is up.
 - **The status line** under it says what the session is doing. See [Status line](/terminal/status-line).
 
+## What changes and what doesn't
+
+The screen has two parts. Everything above the rule is final: once a line is there, `opc` never changes it, so what you scroll back to, search or copy is what was said. Below the rule, and just above it, is the live area: the text being written, the step running, an open ask, the prompt and the status line. Only the live area is redrawn.
+
+Something moves from the live area into the transcript when it is settled: a paragraph when it ends, a run of steps when the agent writes after it, an ask when it is answered. The transcript is in the order things settled. A message from someone else that arrives while a step runs is printed above that step, which settles after it.
+
+The live area is at most 12 lines tall, or half the screen when that is smaller, so it never pushes the transcript around. When a step's output or a long table needs more, the live area shows its last lines.
+
 ## Text as it arrives
 
-The agent's text appears as the model produces it, drawn on the next screen refresh, at most 16 ms later. Markdown is rendered as it streams: code blocks get a gutter, inline code and emphasis are styled, links are clickable in terminals that support them. A block is re-rendered once when it completes, so a table or list that streamed in pieces settles into its final layout.
+The agent's text appears as the model produces it, drawn on the next screen refresh, at most 16 ms later. `opc` draws whole words: a word cut off at the end of a fragment appears when the rest of it arrives.
 
-Reasoning is hidden by default. `Ctrl+T` shows it, dimmed, above the text it led to.
+Markdown is rendered as it streams. Inline code and emphasis are styled once their closing mark arrives, so you never see a stray `**` turn into bold. A code block is shown as code from its first line. A table is drawn with its rows so far and laid out once more when it ends. Links are clickable in terminals that support them.
 
-## Tool cards
+Code blocks are set off by color and indentation, with no border or gutter characters, and their long lines are never broken by `opc`. A copied command is the command. `/copy code` copies the last code block exactly, and `/copy` the agent's last message as markdown.
 
-A card shows the tool and the most useful part of its input: the command for `Bash`, the path for `Read` and `Edit`, the pattern for `Grep`. `Ctrl+O` expands the most recent card to show its full input and output, and again collapses it. `/details` expands every card in the turn.
+## Steps
 
-Subagents appear as a card with their own nested cards, collapsed to one line when they finish.
+Consecutive tool calls share one block in the live area. It shows the step running, with the most useful part of its input, a timer and the last lines of its output. Earlier steps of the run fold into one line under it.
+
+```
+  ⠋ Bash  npm test -- segment.test.ts --repeat 20            12 s
+    ✓ 14 passed
+    ✗ segment.test.ts:88 expected 3, received 2
+    3 earlier: ✓ Read ×2 · ✓ Grep
+```
+
+When the agent writes again, the run settles into the transcript as one line. A run of one step stays as that step:
+
+```
+  ✓ Ran 4 steps · Read ×2, Grep, Bash · 16 s
+  ✓ Bash  npm test -- segment.test.ts --repeat 20 · 4.1 s
+  ✓ Edit  src/segment.test.ts  +12 −3
+```
+
+- `✓` means the run is done. A step that failed and that the agent moved past, such as a search with no match or an edit it retried, is counted as `1 failed` beside the run but does not mark it failed.
+- `✗` means a step was cut off: the turn was interrupted or failed while it ran.
+- Edits show the lines they added and removed.
+- A subagent is a step with its own nested run, shown while it works and folded into its line when it finishes.
+
+Reasoning is part of the run. While the model thinks, the live area shows `thinking` and a timer. A run that included reasoning says so when it settles, as `thought 6 s`. Reasoning shorter than 1.5 s is not mentioned, unless it is the first thing in a turn.
+
+At the end of a turn, one dim line says how long it took and what changed:
+
+```
+  ── 1m 12s · 6 steps · 3 files changed, +40 −12
+```
+
+## Details
+
+The transcript holds the short form. `Ctrl+O` opens the details view, a full-screen view of the session's turns with every step's full input and output, edits as diffs, and the reasoning. While a turn runs, it follows along. `q` or `Esc` returns to the session screen as you left it. The details view never adds to your scrollback.
+
+Reasoning is hidden by default. `Ctrl+T` shows it as it streams, dimmed, and keeps it in the transcript from then on, above the text it led to. Earlier reasoning is in the details view.
 
 ## When you attach to a session with history
 
-`opc a` prints the session's earlier turns before the live part, so you see what led here. Long histories are summarized: the last three turns are printed in full and earlier ones as one line each. Your terminal's scrollback holds all of it.
+`opc a` prints the session's earlier turns before the live part, so you see what led here, in the same short form. Long histories are summarized: the last three turns are printed in full and earlier ones as one line each. The details view has all of it.
 
 ## Messages from elsewhere
 
 If someone writes in the Slack thread, or another terminal is attached, their messages appear in the transcript with their name, as they are received. Asks show who answered them. `opc` never hides activity from other clients.
 
+## When you look away
+
+Turns take minutes, so `opc` tells you when it needs you:
+
+- **The terminal's title** shows the session's state and title, such as `◆ flaky test in segment.test.ts`, so you can see it from another tab. `opc` puts the old title back when it exits.
+- **A notification** is sent when an ask opens, or when a turn that ran longer than 10 seconds ends, if the terminal does not have focus. It uses your terminal's desktop notifications where they exist, and the bell otherwise. `OPC_NOTIFY=0` turns them off.
+
 ## Narrow terminals and plain output
 
-Lines wrap to the terminal width, and cards truncate their summary rather than wrap. Below 40 columns, the status line drops its right side.
+Lines wrap to the terminal width, and steps truncate their summary rather than wrap. Resizing redraws the live area at the new width. The transcript keeps the width it was printed at. Below 40 columns, the status line drops its right side.
 
 When standard output is not a terminal, `opc` does not draw this screen. It prints the transcript as plain text and exits when the turn ends, as `opc -p` does. See [Scripting](/cli/scripting).
 
-Colors follow your terminal's palette. `NO_COLOR=1` turns them off. `opc` uses 16 colors only, so themes look right in every terminal.
+Colors follow your terminal's palette. `NO_COLOR=1` turns them off. `opc` uses 16 colors only, so themes look right in every terminal. Where the terminal or locale cannot show the symbols above, `opc` uses ASCII.
