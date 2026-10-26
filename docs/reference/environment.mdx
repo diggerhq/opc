@@ -10,13 +10,14 @@ description: "Environment variables, the configuration file and what opc keeps o
 | `OPENCOMPUTER_API_KEY` | The credential to use. Takes precedence over the configuration file. |
 | `OPENCOMPUTER_API_URL` | The API's base URL. Default `https://app.opencomputer.dev`. |
 | `OPENCOMPUTER_CONFIG` | Path of the configuration file. Default `~/.opencomputer/config.json`. |
+| `OPC_WIRE_URL` | The WebSocket URL of your computer's connection. Default: the one the API gave last time. |
 | `OPC_STATE_DIR` | Where `opc` keeps its own state. Default `~/.opencomputer/opc`. |
 | `OPC_LOG` | `error`, `warn`, `info` or `debug`. Logs go to standard error. Default `warn`. |
 | `NO_COLOR` | Any value turns colors off |
 | `OPC_NOTIFY` | `0` turns off [notifications](/terminal/session-screen#when-you-look-away) |
 | `VISUAL`, `EDITOR` | The editor for `Ctrl+X Ctrl+E` |
-| `BROWSER` | The program `opc login` and `opc open` open links with |
-| `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes: API requests and the session's WebSocket connection, both tunnelled with `CONNECT`. `NO_PROXY` lists hosts to reach directly. The [timing targets](/reference/timing#what-to-expect) do not include a proxy. |
+| `BROWSER` | The program `opc login` and `opc open` open links with. Several commands separated by `:` are tried in turn; `%s` in one stands for the link. |
+| `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes: API requests and the session's WebSocket connection, both tunnelled with `CONNECT`. `NO_PROXY` lists hosts to reach directly; CIDR ranges in it are not matched. `ALL_PROXY` is used only when it is an `http://` proxy. The [timing targets](/reference/timing#what-to-expect) do not include a proxy. |
 
 `OPENCOMPUTER_*` variables are shared with the `opencomputer` CLI.
 
@@ -43,8 +44,8 @@ Under `~/.opencomputer/opc/`, or `OPC_STATE_DIR`:
 | `state.json` | The last session created or attached on this machine, for `opc a -`, `push`, `pull`, `shell` and `secret` | Yes |
 | `sessions.json` | The session list from the last `opc ls` or picker, so `opc ls`, the picker and completions open instantly | Yes |
 | `sessions/<id>.jsonl` | The recorded events of each session you opened on this machine, `0600`, so attaching draws at once and fetches only what is new | Yes |
-| `tls-cache` | TLS session resumption data, so a new connection skips part of its handshake, `0600` | Yes |
 | `history` | What you typed at the prompt line, for `↑` and `Ctrl+R`. At most 10,000 entries. | Yes |
+| `.lock` | Empty. The file lock that lets several `opc` processes share these files. | Yes |
 
 Several `opc` processes can run at once: they share these files safely, with file locks. Deleting any of them only makes the next launch fetch again.
 

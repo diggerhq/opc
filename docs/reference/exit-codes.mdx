@@ -15,7 +15,7 @@ description: "What each exit code means, and the error codes printed with --json
 | `124` | Timed out | `--timeout` passed. The turn keeps running. |
 | `130` | Interrupted | `Ctrl+C`. The turn keeps running unless you passed `--interrupt-on-exit`. |
 
-`opc` retries `429` and `503` responses itself, after the `retryAfterMs` they carry, for as long as `--timeout` allows. Exit `4` means it ran out of time or the failure was not one it retries.
+`opc` retries `429` and `503` responses itself, after the `retryAfterMs` they carry, until `--timeout` passes, or for 60 seconds without one. Exit `4` means it ran out of time or the failure was not one it retries.
 
 ## Error objects
 
@@ -25,7 +25,7 @@ The outcome of a turn is not an error: it is the [Result](/api/reference/objects
 { "error": { "code": "session_ambiguous", "message": "7f matches 3 sessions; use more characters", "retryable": false, "matches": ["cs_7f3a9k2m4q8r1t6v", "cs_7f9c2d8e4b1n6p0q", "cs_7fk2m9x4c8v1b3n5"] } }
 ```
 
-`code`, `message` and `retryable` are always present. `retryable` is `true` when the same command, run again later, may succeed. With `--output-format stream-json`, a command failure also ends standard output with `{"type": "result", "subtype": "error", "isError": true, "error": {…}}`, so a reader of the stream always gets a last line.
+`code`, `message` and `retryable` are always present. `retryable` is `true` when the same command, run again later, may succeed. `hint`, when present, is what to do about it, such as `pass -s <id>`. With `--output-format stream-json`, a command failure also ends standard output with `{"type": "result", "subtype": "error", "isError": true, "error": {…}}`, so a reader of the stream always gets a last line.
 
 | `code` | Exit | Retryable | Meaning |
 | --- | --- | --- | --- |
@@ -48,6 +48,18 @@ The outcome of a turn is not an error: it is the [Result](/api/reference/objects
 | `timeout` | 124 | yes | `--timeout` passed |
 | `push_rejected` | 2 | no | A push was refused. `reason` is the API's code: `path_exists`, `invalid_path` or `too_large`. |
 | `pull_rejected` | 2 | no | A pull was refused. `reason` is `path_not_found`, `too_large`, or `destination_not_empty` when the local directory has files. |
+| `ask_not_found` | 2 | no | No open ask with that id in the sessions you can see. Pass `-s <id>`. |
+| `invalid_answer` | 2 | no | The choice is not one of the question's options, or the question takes one choice |
+| `answer_with_secret` | 2 | no | The ask is a secret request, which `opc ask answer` does not answer. `message` says what does. |
+| `subagent_running` | 5 | no | `opc subagents result`: the subagent is still running. `message` says what it is doing. |
+| `detached` | 2 | no | The server stopped sending the session. `message` gives the reason. |
+| `too_far_behind`, `too_many_attached`, `too_large` | 2 | no | Your computer's connection refused the request: the session is too far behind to attach, too many sessions are attached, or a message is too large for the connection |
+| `feature_unavailable`, `invalid_request` | 2 | no | Your computer refused the request: the feature is not available on it, or the request was malformed |
+| `io` | 2 | no | A local file could not be read or written. `message` names it. |
+| `config_unreadable` | 2 | no | `opc doctor`: the configuration file exists but cannot be read |
+| `invalid_response` | 2 | no | `opc` could not read what the server sent |
+| `internal` | 4 | yes | Something failed inside `opc` or on the server. Run it again; if it keeps failing, `opc doctor` and `OPC_LOG=debug` show more. |
+| `interrupted` | 130 | no | `Ctrl+C` or a signal |
 
 `turn_failed`, `turn_cancelled` and `waiting` are turn outcomes. Commands that print a Result (`opc -p`, `opc wait`, `opc watch`, `opc send --wait`) report them there, as `subtype` `error`, `cancelled` or `waiting` with the same fields, and print no error object. In `stream-json`, a failed turn's last line has `status: "failed"`; a command failure's last line does not.
 

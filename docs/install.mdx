@@ -13,7 +13,7 @@ description: "One static binary for macOS and Linux."
     curl -fsSL https://opencomputer.dev/opc/install.sh | sh
     ```
 
-    The script detects your platform, downloads the matching release, checks its SHA-256 against the published checksums and installs it to `~/.local/bin/opc`. Set `OPC_INSTALL_DIR` to install somewhere else. It never asks for `sudo` and never edits your shell's startup files: if the install directory is not on your `PATH`, it prints the line to add. It ends with `Run opc to start.`
+    The script detects your platform, downloads the matching release, checks its SHA-256 against the published checksums and installs it to `~/.local/bin/opc`. Set `OPC_INSTALL_DIR` to install somewhere else, and `OPC_VERSION` to install one release, such as `OPC_VERSION=v0.1.0-rc.3`; pre-releases count. Without it, the script installs the latest release, or the newest pre-release while there is no full release yet. It never asks for `sudo` and never edits your shell's startup files: if the install directory is not on your `PATH`, it prints the line to add. It ends with `Run opc to start.`
   </Tab>
   <Tab title="Homebrew">
     ```bash

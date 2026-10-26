@@ -37,7 +37,7 @@ Starts a new session. With a message, sends it. With `-p`, runs one turn non-int
 
 | Option | Does |
 | --- | --- |
-| `-p`, `--print` | Non-interactive: send, wait, print the result |
+| `-p`, `--print` | Non-interactive: send, wait, print the result. With a message as an argument, reads standard input too, only when it is a file or a pipe with data within 200 ms; `-` waits for it. |
 | `-s`, `--session <id>` | With `-p`, sends to an existing session instead of creating one |
 | `--steer`, `--queue`, `--interrupt` | With `-p -s`: how the message is delivered if a turn is running. Default `--queue`. |
 | `--model <model>` | Model for the new session |
@@ -45,7 +45,7 @@ Starts a new session. With a message, sends it. With `-p`, runs one turn non-int
 | `--mode <mode>`, `--permission-mode <mode>` | Permission mode for the new session |
 | `--title <title>` | Title, instead of one from the first message |
 | `--metadata <key=value>` | Metadata for the new session. Repeatable. |
-| `--push <dir>` | Pushes a directory into the new session before sending. Repeatable. |
+| `--push <dir>` | Pushes a directory into the new session before sending. Repeatable. `opc` prints `opc: session <id> <url>` on standard error before the uploads start. |
 | `--idempotency-key <k>` | With `-p`: a repeat re-attaches to the original turn and waits for it |
 | `--output-format <format>` | With `-p`: `text`, `json` or `stream-json` |
 | `--include-partial-messages` | With `stream-json`: also print text deltas |
@@ -137,6 +137,7 @@ Sends a message and returns when it is accepted. `-` reads the message from stan
 | `--wait` | Then wait for the turn the message ended up in, as `opc wait`, and print its Result |
 | `--timeout <duration>` | With `--wait`: give up after this long, exit `124` |
 | `--wait-subagents` | With `--wait`: also wait for the background subagents the turn started |
+| `--on-ask <action>` | With `--wait`: `fail`, `dismiss` or `wait`, as for `opc -p`. Default `fail`. |
 | `--idempotency-key <k>` | A repeat sends nothing new and prints the original turn |
 | `--json` | Prints what [sending](/api/http/turns#send-a-message) returned: `{ turn, delivery, duplicate, seq }`. With `--wait`, the Result. |
 
@@ -148,17 +149,20 @@ opc wait <tn_…> [options]
 opc wait --any|--all <id | tn_…>… [options]
 ```
 
-With a session, blocks until no turn is running or queued. With a turn, through `--turn` or alone, blocks until that turn ends or waits for a person. `opc wait tn_…` alone works for turns sent from this machine; for others, name the session too.
+With a session, blocks until no turn is running or queued. With a turn, through `--turn` or alone, blocks until that turn ends or waits for a person. `opc wait tn_…` alone works for the last 500 turns sent from this machine; for others, name the session too. The handle line gives both ids.
 
 | Option | Does |
 | --- | --- |
 | `--any` | With several ids: return when the first of them is done, with its exit code |
 | `--all` | With several ids: return when every one is done |
 | `--wait-subagents` | Also wait for the background subagents the turn started. The Result then shows them ended. |
+| `--on-ask <action>` | What to do when an ask opens: `fail`, `dismiss` or `wait`, as for `opc -p`. Default `fail`. |
 | `--timeout <duration>` | Give up after this long, exit `124` |
 | `--json` | The [Result](/api/reference/objects#result) of the last turn. With several ids, one Result per line, as each is done. |
 
-Without `--json`, prints the last turn's final message. Exit `0` completed, `1` failed or cancelled, `5` waiting for a person, `124` timed out. With `--all`, `0` when every one completed, else `5` if any is waiting, else `1`.
+Without `--json`, prints the last turn's final message; with several ids, each under a `── <session id>` line. Exit `0` completed, `1` failed or cancelled, `5` waiting for a person, `124` timed out. With `--all`, `0` when every one completed, else `5` if any is waiting, else `1`.
+
+With several ids, a lost session, one whose attach was refused or that the server stopped sending, is reported on its own and the others go on: a Result line with `subtype` `error` and its `sessionId`, or `opc: <id>: <message>` without `--json`. It counts as `1` for `--all`, and never as the first for `--any`. With one id, it fails the command.
 
 ## opc watch
 
@@ -166,7 +170,7 @@ Without `--json`, prints the last turn's final message. Exit `0` completed, `1` 
 opc watch <id>… [options]
 ```
 
-Prints a session's activity, read-only, until it is idle or waiting, and exits as `opc wait` does. With several sessions, until every one is.
+Prints a session's activity, read-only, until it is idle or waiting, and exits as `opc wait` does. With several sessions, until every one is; a lost one is reported on its own, in JSON as `{"type": "error", "sessionId": …, "error": {…}}`, and the others go on.
 
 | Option | Does |
 | --- | --- |
@@ -310,7 +314,7 @@ opc whoami [--json]
 opc doctor [--json]
 ```
 
-Checks, in order, and stops at the first failure: the configuration file, the credential, the API, your computer, the connection to it, and a round trip through it. Prints each step's time. `--json` prints `{ "steps": [{ name, ok, ms, error }] }`. Run it first when something is wrong. See [Troubleshooting](/troubleshooting).
+Checks, in order, and stops at the first failure: the configuration file, the credential, the API, your computer, the connection to it, and a round trip through it. Prints each step's time. `--json` prints `{ "steps": [{ name, ok, ms, detail, error }] }`, with the failure in its step's `error` rather than on standard error. Run it first when something is wrong. See [Troubleshooting](/troubleshooting).
 
 ## opc schema
 

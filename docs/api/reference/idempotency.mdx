@@ -41,4 +41,4 @@ Other writes need no key. Updating settings, cancelling a queued turn, suspendin
 - **Concurrent repeats are safe.** If a repeat arrives while the first is still being handled, it waits for that result.
 - **Keys hold across restarts.** A session's keys are checked by the session's writer on the computer and recorded in its log, so a retry is recognized even after the computer restarts or the session resumes. Keys for `POST /sessions` are checked before the session exists. Keys for `PUT /sessions/{id}/workspace/archive` and `terminals.open` are the exception: they are kept only while your computer stays up, so a retry after it restarts writes again.
 
-`opc` sends a key with every write, and retries for up to 30 seconds after a lost response before telling you.
+`opc` sends a key with every write, and retries after a lost response for up to 60 seconds, or until its `--timeout`, before telling you.

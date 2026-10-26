@@ -25,7 +25,7 @@ Everything here runs without a terminal: nothing prompts, opens a browser or wai
 | `opc diff` | The agent's changes | A git diff, as text |
 | `opc secret ls` | Lists secrets, never values | `{ secrets: [Secret…] }` |
 | `opc whoami` | Who the credential is | What `GET /me` returns |
-| `opc doctor` | Checks the path to your computer | `{ steps: [{ name, ok, ms, error }] }` |
+| `opc doctor` | Checks the path to your computer | `{ steps: [{ name, ok, ms, detail, error }] }` |
 | `opc schema` | The JSON Schema of the objects above | JSON Schema |
 
 The objects are the API's, in camelCase, with every documented field present. Their JSON Schema is published at `https://opencomputer.dev/schemas/computer-api.v1.json`; `opc schema result`, `event`, `session`, `turn` or `ask` prints one.
