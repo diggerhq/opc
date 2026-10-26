@@ -1,0 +1,1165 @@
+//! The wire actor: one task owns the connection, the sessions' cursors and
+//! the requests in flight, so there is a single writer for every piece of
+//! state and no locks.
+//!
+//! Guarantees to the consumer of [`WireEvent`]s:
+//! - every recorded event once, in `seq` order per session, across
+//!   reconnects: a repeat (`seq <= cursor`) is skipped, a gap
+//!   (`seq > cursor + 1`) is dropped and refilled by attaching again with
+//!   `after: cursor`;
+//! - a `logEpoch` change, or `cursor_ahead`, rolls the cursor back to
+//!   `epochStartSeq - 1` and says so with [`WireEvent::EpochReset`] before the
+//!   replacement events;
+//! - requests not answered when a connection drops are sent again on the next
+//!   one (writes carry an idempotency key, so a repeat is harmless), except
+//!   after `1009 message too big`;
+//! - a session too far behind (`too_far_behind`, close `4008`) is paged over
+//!   HTTP until it is within 10 000 events, then attached.
+
+use super::client::{self, Frame};
+use super::{Attach, AttachInfo, WireEvent, WireOptions};
+use crate::api::types::{Capabilities, Delta, Event, Session, Turn};
+use crate::error::{Error, Result};
+use crate::http::Http;
+use crate::log;
+use bytes::Bytes;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
+use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::sleep_until;
+use tokio_tungstenite::tungstenite::Message;
+
+/// Ack after this many events, or this long after the first unacked one.
+const ACK_EVERY: u32 = 64;
+const ACK_AFTER: Duration = Duration::from_millis(250);
+/// A socket quiet this long is probed before it is trusted with a request.
+const QUIET: Duration = Duration::from_secs(15);
+/// Keepalive and wake detection.
+const KEEPALIVE: Duration = Duration::from_secs(20);
+const MIN_PROBE: Duration = Duration::from_millis(750);
+/// The server replays at most this many events on attach.
+const MAX_REPLAY: u64 = 10_000;
+const BACKOFF_START: Duration = Duration::from_millis(250);
+const BACKOFF_MAX: Duration = Duration::from_secs(8);
+/// A connection up this long resets the backoff.
+const STABLE: Duration = Duration::from_secs(60);
+/// How long a dial may take before it counts as failed.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+
+pub struct Wire;
+
+/// Cheap to clone. Dropping every handle closes the connection.
+#[derive(Clone)]
+pub struct WireHandle {
+    tx: mpsc::UnboundedSender<Cmd>,
+}
+
+enum Cmd {
+    Call { method: String, params: Value, reply: oneshot::Sender<Result<Value>> },
+    Notify { method: String, params: Value },
+    Attach(Attach),
+    Detach(String),
+    Binary(u32, Bytes),
+    Probe,
+    Close,
+}
+
+impl Wire {
+    /// Starts dialing in the background and returns at once. The first
+    /// sessions go in the upgrade URL.
+    pub fn open(opts: WireOptions, attaches: Vec<Attach>, http: Option<Http>) -> (WireHandle, mpsc::UnboundedReceiver<WireEvent>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (out, events) = mpsc::unbounded_channel();
+        let actor = Actor::new(opts, attaches, http, out);
+        tokio::spawn(actor.run(rx));
+        (WireHandle { tx }, events)
+    }
+}
+
+impl WireHandle {
+    /// A JSON-RPC request; resolves with its `result`, or the API error.
+    pub async fn call(&self, method: &str, params: Value) -> Result<Value> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::Call { method: method.to_string(), params, reply })
+            .map_err(|_| Error::unreachable("the connection is closed"))?;
+        rx.await.map_err(|_| Error::unreachable("the connection is closed"))?
+    }
+
+    pub fn notify(&self, method: &str, params: Value) {
+        let _ = self.tx.send(Cmd::Notify { method: method.to_string(), params });
+    }
+
+    pub fn attach(&self, attach: Attach) {
+        let _ = self.tx.send(Cmd::Attach(attach));
+    }
+
+    pub fn detach(&self, session_id: &str) {
+        let _ = self.tx.send(Cmd::Detach(session_id.to_string()));
+    }
+
+    pub fn send_binary(&self, channel: u32, data: Bytes) {
+        let _ = self.tx.send(Cmd::Binary(channel, data));
+    }
+
+    /// Checks the connection now (the network changed, the machine woke).
+    pub fn probe(&self) {
+        let _ = self.tx.send(Cmd::Probe);
+    }
+
+    pub fn close(&self) {
+        let _ = self.tx.send(Cmd::Close);
+    }
+}
+
+/// The parse of an attach result or a `sessions.attached` notification.
+pub fn parse_attach(v: &Value) -> Result<AttachInfo> {
+    let session: Session = serde_json::from_value(v.get("session").cloned().unwrap_or(Value::Null))
+        .map_err(|e| Error::new("internal", format!("the server sent a session opc cannot read: {e}")))?;
+    let log_epoch = v.get("logEpoch").and_then(Value::as_u64).unwrap_or(session.log_epoch.max(1));
+    let epoch_start_seq = v.get("epochStartSeq").and_then(Value::as_u64).unwrap_or(session.epoch_start_seq);
+    let capabilities: Option<Capabilities> = v.get("capabilities").filter(|c| !c.is_null()).and_then(|c| serde_json::from_value(c.clone()).ok());
+    let earlier_turns: Option<Vec<Turn>> = v.get("earlierTurns").filter(|c| !c.is_null()).and_then(|c| serde_json::from_value(c.clone()).ok());
+    let server = v.pointer("/timing/serverUs").and_then(Value::as_u64).map(Duration::from_micros);
+    Ok(AttachInfo { session, log_epoch, epoch_start_seq, capabilities, earlier_turns, server })
+}
+
+/// A JSON-RPC error object to an [`Error`].
+pub fn rpc_error(e: &Value) -> Error {
+    let code = e.get("code").and_then(Value::as_i64).unwrap_or(-32000);
+    match e.get("data") {
+        Some(data) if data.is_object() => {
+            let status = data.get("status").and_then(Value::as_u64).unwrap_or(if code == -32602 { 400 } else { 500 }) as u16;
+            let mut err = crate::http::api_error(status, data, &http::HeaderMap::new());
+            if code == -32602 && data.get("code").is_none() {
+                err.code = "invalid_request".into();
+            }
+            err
+        }
+        _ => {
+            let message = e.get("message").and_then(Value::as_str).unwrap_or("request failed").to_string();
+            let mut err = match code {
+                -32602 | -32600 => Error::new("invalid_request", message),
+                -32601 => Error::new("feature_unavailable", message),
+                _ => Error::new("internal", message),
+            };
+            err.status = Some(if code == -32000 { 500 } else { 400 });
+            err
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Sess {
+    want: Attach,
+    /// The last `seq` delivered.
+    cursor: Option<u64>,
+    epoch: Option<u64>,
+    /// An attach is in flight (by request id, or `0` for the URL).
+    attaching: bool,
+    /// A gap was seen; a re-attach is in flight.
+    resync: bool,
+    /// Being paged over HTTP before attaching.
+    paging: bool,
+    unacked: u32,
+    first_unacked: Option<Instant>,
+}
+
+impl Sess {
+    fn attach_now(&self) -> Attach {
+        let mut a = self.want.clone();
+        if let Some(c) = self.cursor {
+            a.after = Some(c);
+            a.tail_turns = None;
+        }
+        a
+    }
+}
+
+enum Purpose {
+    User(oneshot::Sender<Result<Value>>),
+    Attach(String),
+    Ping(Instant),
+}
+
+struct Pending {
+    method: String,
+    params: Value,
+    purpose: Purpose,
+    /// The connection generation it was written to (`None`: not yet).
+    sent_on: Option<u64>,
+}
+
+struct Conn {
+    generation: u64,
+    tx: mpsc::UnboundedSender<Message>,
+    dial_started: Instant,
+    resumed_tls: bool,
+    /// The server closes the connection then (`ready.expiresInMs`); a
+    /// replacement is dialed before it.
+    expires_at: Option<Instant>,
+    /// `ready` arrived.
+    ready: bool,
+    up_since: Instant,
+    last_rx: Instant,
+    /// Sessions the URL attached on this connection.
+    url_attached: Vec<String>,
+}
+
+enum Internal {
+    Dialed(u64, Result<client::Dialed>, Vec<String>),
+    Paged { session_id: String, result: Result<(Vec<Value>, u64, Option<u64>)> },
+    MeChecked(Result<Option<String>>),
+}
+
+struct Actor {
+    opts: WireOptions,
+    url: String,
+    http: Option<Http>,
+    out: mpsc::UnboundedSender<WireEvent>,
+    sessions: HashMap<String, Sess>,
+    order: Vec<String>,
+    pending: BTreeMap<u64, Pending>,
+    next_id: u64,
+    generation: u64,
+    conn: Option<Conn>,
+    /// A connection open but not yet `ready`. It replaces `conn` only once
+    /// `ready` arrives, so a replacement is made before the old one breaks.
+    next: Option<Conn>,
+    /// The generation being dialed, and when the dial started.
+    dialing: Option<(u64, Instant)>,
+    frames_tx: mpsc::UnboundedSender<(u64, Frame)>,
+    frames_rx: mpsc::UnboundedReceiver<(u64, Frame)>,
+    internal_tx: mpsc::UnboundedSender<Internal>,
+    internal_rx: mpsc::UnboundedReceiver<Internal>,
+    attempt: u32,
+    retry_at: Option<Instant>,
+    down_since: Option<Instant>,
+    ever_connected: bool,
+    refreshed_url: bool,
+    probe: Option<(u64, Instant)>,
+    rtt: Option<Duration>,
+    last_wall: (Instant, SystemTime),
+    keepalive_at: Instant,
+    closed: bool,
+    /// Don't resend requests after `1009`.
+    drop_pending: bool,
+}
+
+impl Actor {
+    fn new(opts: WireOptions, attaches: Vec<Attach>, http: Option<Http>, out: mpsc::UnboundedSender<WireEvent>) -> Actor {
+        let (frames_tx, frames_rx) = mpsc::unbounded_channel();
+        let (internal_tx, internal_rx) = mpsc::unbounded_channel();
+        let mut sessions = HashMap::new();
+        let mut order = Vec::new();
+        for a in attaches {
+            if !sessions.contains_key(&a.session_id) {
+                order.push(a.session_id.clone());
+            }
+            sessions.insert(a.session_id.clone(), new_sess(a));
+        }
+        let now = Instant::now();
+        Actor {
+            url: opts.url.clone(),
+            opts,
+            http,
+            out,
+            sessions,
+            order,
+            pending: BTreeMap::new(),
+            next_id: 1,
+            generation: 0,
+            conn: None,
+            next: None,
+            dialing: None,
+            frames_tx,
+            frames_rx,
+            internal_tx,
+            internal_rx,
+            attempt: 0,
+            retry_at: Some(now),
+            down_since: Some(now),
+            ever_connected: false,
+            refreshed_url: false,
+            probe: None,
+            rtt: None,
+            last_wall: (now, SystemTime::now()),
+            keepalive_at: now + KEEPALIVE,
+            closed: false,
+            drop_pending: false,
+        }
+    }
+
+    async fn run(mut self, mut cmds: mpsc::UnboundedReceiver<Cmd>) {
+        loop {
+            if self.closed {
+                break;
+            }
+            let deadline = self.next_deadline();
+            tokio::select! {
+                biased;
+                frame = self.frames_rx.recv() => {
+                    if let Some((generation, frame)) = frame { self.on_frame(generation, frame); }
+                }
+                cmd = cmds.recv() => match cmd {
+                    Some(cmd) => self.on_cmd(cmd),
+                    None => self.close(),
+                },
+                internal = self.internal_rx.recv() => {
+                    if let Some(i) = internal { self.on_internal(i); }
+                }
+                _ = sleep_until(deadline.into()) => self.on_timer(),
+            }
+        }
+    }
+
+    fn emit(&self, e: WireEvent) {
+        let _ = self.out.send(e);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        let mut d = Instant::now() + Duration::from_secs(3600);
+        let mut min = |t: Instant| {
+            if t < d {
+                d = t;
+            }
+        };
+        if let Some(t) = self.retry_at {
+            min(t);
+        }
+        if let Some((_, t)) = self.probe {
+            min(t);
+        }
+        if let Some(c) = self.conn.as_ref().filter(|c| c.ready) {
+            min(self.keepalive_at);
+            if let Some(t) = c.expires_at {
+                min(t);
+            }
+        }
+        for s in self.sessions.values() {
+            if let Some(t) = s.first_unacked {
+                min(t + ACK_AFTER);
+            }
+        }
+        if let (Some(since), Some(limit)) = (self.down_since, self.opts.give_up) {
+            min(since + limit);
+        }
+        d
+    }
+
+    // ---- commands ----
+
+    fn on_cmd(&mut self, cmd: Cmd) {
+        match cmd {
+            Cmd::Call { method, params, reply } => {
+                if self.conn.as_ref().is_some_and(|c| c.ready && c.last_rx.elapsed() > QUIET) {
+                    self.start_probe();
+                }
+                self.request(method, params, Purpose::User(reply));
+            }
+            Cmd::Notify { method, params } => {
+                self.write(json!({"jsonrpc": "2.0", "method": method, "params": params}));
+            }
+            Cmd::Attach(a) => {
+                let id = a.session_id.clone();
+                if !self.sessions.contains_key(&id) {
+                    self.order.push(id.clone());
+                }
+                self.sessions.insert(id.clone(), new_sess(a));
+                if self.is_ready() {
+                    self.send_attach(&id);
+                }
+            }
+            Cmd::Detach(id) => {
+                if self.sessions.remove(&id).is_some() {
+                    self.order.retain(|s| s != &id);
+                    if self.is_ready() {
+                        let rid = self.alloc_id();
+                        self.write(json!({"jsonrpc": "2.0", "id": rid, "method": "sessions.detach", "params": {"sessionId": id}}));
+                    }
+                }
+            }
+            Cmd::Binary(channel, data) => {
+                if let Some(c) = &self.conn {
+                    let _ = c.tx.send(client::binary_frame(channel, &data));
+                }
+            }
+            Cmd::Probe => self.start_probe(),
+            Cmd::Close => self.close(),
+        }
+    }
+
+    fn close(&mut self) {
+        self.flush_acks(true);
+        for c in [self.conn.take(), self.next.take()].into_iter().flatten() {
+            let _ = c.tx.send(Message::Close(None));
+        }
+        for (_, p) in std::mem::take(&mut self.pending) {
+            if let Purpose::User(reply) = p.purpose {
+                let _ = reply.send(Err(Error::unreachable("the connection is closed")));
+            }
+        }
+        self.closed = true;
+    }
+
+    fn is_ready(&self) -> bool {
+        self.conn.as_ref().is_some_and(|c| c.ready)
+    }
+
+    fn alloc_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    fn request(&mut self, method: String, params: Value, purpose: Purpose) -> u64 {
+        let id = self.alloc_id();
+        let mut p = Pending { method, params, purpose, sent_on: None };
+        if let Some(c) = self.conn.as_ref().filter(|c| c.ready) {
+            let msg = json!({"jsonrpc": "2.0", "id": id, "method": p.method, "params": p.params});
+            if c.tx.send(Message::Text(msg.to_string().into())).is_ok() {
+                p.sent_on = Some(c.generation);
+            }
+        }
+        self.pending.insert(id, p);
+        id
+    }
+
+    fn write(&self, msg: Value) {
+        if let Some(c) = self.conn.as_ref().filter(|c| c.ready) {
+            let _ = c.tx.send(Message::Text(msg.to_string().into()));
+        }
+    }
+
+    fn send_attach(&mut self, id: &str) {
+        let Some(s) = self.sessions.get_mut(id) else { return };
+        if s.paging {
+            return;
+        }
+        s.attaching = true;
+        let a = s.attach_now();
+        let mut params = json!({"sessionId": id});
+        if let Some(after) = a.after {
+            params["after"] = json!(after);
+        }
+        if let Some(t) = a.tail_turns {
+            params["tailTurns"] = json!(t);
+        }
+        if self.opts.deltas {
+            params["deltas"] = json!(true);
+        }
+        if self.opts.resume {
+            params["resume"] = json!(true);
+        }
+        if self.opts.read_only {
+            params["readOnly"] = json!(true);
+        }
+        // An earlier attach for this session still in flight is superseded.
+        self.pending.retain(|_, p| !matches!(&p.purpose, Purpose::Attach(s) if s == id));
+        self.request("sessions.attach".into(), params, Purpose::Attach(id.to_string()));
+    }
+
+    fn start_probe(&mut self) {
+        if self.probe.is_some() || !self.is_ready() {
+            return;
+        }
+        let rtt = self.rtt.unwrap_or(Duration::from_millis(250));
+        let timeout = (rtt * 3).max(MIN_PROBE);
+        let id = self.request("ping".into(), json!({}), Purpose::Ping(Instant::now()));
+        self.probe = Some((id, Instant::now() + timeout));
+    }
+
+    // ---- timers ----
+
+    fn on_timer(&mut self) {
+        let now = Instant::now();
+        if let (Some(since), Some(limit)) = (self.down_since, self.opts.give_up) {
+            if now >= since + limit {
+                self.emit(WireEvent::Fatal(Error::unreachable(format!(
+                    "cannot reach your computer (disconnected for {}s)",
+                    limit.as_secs()
+                ))));
+                self.close();
+                return;
+            }
+        }
+        if self.retry_at.is_some_and(|t| now >= t) {
+            self.retry_at = None;
+            self.dial();
+        }
+        if let Some((id, t)) = self.probe {
+            if now >= t {
+                self.probe = None;
+                self.pending.remove(&id);
+                log::info("wire: the connection stopped answering; reconnecting");
+                if let Some(c) = self.conn.take() {
+                    let _ = c.tx.send(Message::Close(None));
+                }
+                self.down_since.get_or_insert(now);
+                self.dial_now();
+            }
+        }
+        if self.conn.as_ref().and_then(|c| c.expires_at).is_some_and(|t| now >= t) {
+            if let Some(c) = self.conn.as_mut() {
+                c.expires_at = None;
+            }
+            self.dial();
+        }
+        if self.is_ready() && now >= self.keepalive_at {
+            self.keepalive_at = now + KEEPALIVE;
+            // Wake detection: the wall clock moved further than the monotonic one.
+            let (mono, wall) = self.last_wall;
+            let wall_elapsed = SystemTime::now().duration_since(wall).unwrap_or_default();
+            if wall_elapsed > mono.elapsed() + Duration::from_secs(5) {
+                log::info("wire: woke from sleep; checking the connection");
+            }
+            self.start_probe();
+        }
+        self.last_wall = (now, SystemTime::now());
+        self.flush_acks(false);
+    }
+
+    fn flush_acks(&mut self, all: bool) {
+        let now = Instant::now();
+        let mut acks = Vec::new();
+        for (id, s) in &mut self.sessions {
+            if s.unacked > 0 && (all || s.unacked >= ACK_EVERY || s.first_unacked.is_some_and(|t| now >= t + ACK_AFTER)) {
+                if let Some(c) = s.cursor {
+                    acks.push(json!({"jsonrpc": "2.0", "method": "sessions.ack", "params": {"sessionId": id, "seq": c}}));
+                }
+                s.unacked = 0;
+                s.first_unacked = None;
+            }
+        }
+        for a in acks {
+            self.write(a);
+        }
+    }
+
+    // ---- dialing ----
+
+    fn dial(&mut self) {
+        if self.dialing.is_some() || self.closed {
+            return;
+        }
+        self.generation += 1;
+        let generation = self.generation;
+        self.dialing = Some((generation, Instant::now()));
+        let attaches: Vec<Attach> = self
+            .order
+            .iter()
+            .filter_map(|id| self.sessions.get(id))
+            .filter(|s| !s.paging)
+            .map(Sess::attach_now)
+            .collect();
+        let (url, in_url) = client::upgrade_url(&self.url, &attaches, &self.opts);
+        for id in &in_url {
+            if let Some(s) = self.sessions.get_mut(id) {
+                s.attaching = true;
+            }
+        }
+        log::debug(&format!("wire: dialing {} (attempt {})", self.url, self.attempt));
+        let key = self.opts.key.clone();
+        let frames = self.frames_tx.clone();
+        let internal = self.internal_tx.clone();
+        tokio::spawn(async move {
+            let r = match tokio::time::timeout(DIAL_TIMEOUT, client::dial(&url, &key, generation, frames)).await {
+                Ok(r) => r,
+                Err(_) => Err(Error::unreachable("timed out connecting to your computer")),
+            };
+            let _ = internal.send(Internal::Dialed(generation, r, in_url));
+        });
+    }
+
+    fn on_internal(&mut self, i: Internal) {
+        match i {
+            Internal::Dialed(generation, result, in_url) => {
+                let Some((dialing, dial_started)) = self.dialing.filter(|(g, _)| *g == generation) else { return };
+                let _ = dialing;
+                self.dialing = None;
+                match result {
+                    Ok(d) => {
+                        // It serves once `ready` arrives; frames are tagged.
+                        let now = Instant::now();
+                        if let Some(stale) = self.next.replace(Conn {
+                            generation,
+                            tx: d.tx,
+                            dial_started,
+                            resumed_tls: d.resumed_tls,
+                            expires_at: None,
+                            ready: false,
+                            up_since: now,
+                            last_rx: now,
+                            url_attached: in_url,
+                        }) {
+                            let _ = stale.tx.send(Message::Close(None));
+                        }
+                    }
+                    Err(e) => self.on_dial_error(e, in_url),
+                }
+            }
+            Internal::Paged { session_id, result } => self.on_paged(session_id, result),
+            Internal::MeChecked(result) => match result {
+                Ok(url) => {
+                    if let Some(u) = url {
+                        self.url = u;
+                    }
+                    self.schedule_retry(None);
+                }
+                Err(e) if matches!(e.code.as_str(), "unauthenticated" | "forbidden") => {
+                    self.emit(WireEvent::Fatal(e));
+                    self.close();
+                }
+                Err(_) => self.schedule_retry(None),
+            },
+        }
+    }
+
+    fn on_dial_error(&mut self, e: Error, in_url: Vec<String>) {
+        for id in &in_url {
+            if let Some(s) = self.sessions.get_mut(id) {
+                s.attaching = false;
+            }
+        }
+        if matches!(e.code.as_str(), "unauthenticated" | "forbidden" | "upgrade_required" | "usage") {
+            self.emit(WireEvent::Fatal(e));
+            self.close();
+            return;
+        }
+        let first = !self.ever_connected && !self.refreshed_url;
+        let server_side = e.status.is_some_and(|s| s >= 500) || e.message.contains("resolve") || e.message.contains("dns");
+        if first && server_side && self.http.is_some() {
+            // The cached wire URL may be stale: ask `/me` once.
+            self.refreshed_url = true;
+            let http = self.http.clone().expect("checked");
+            let internal = self.internal_tx.clone();
+            tokio::spawn(async move {
+                let r = http.get("/me", &[]).await.map(|me| wire_url_from_me(&me));
+                let _ = internal.send(Internal::MeChecked(r));
+            });
+            return;
+        }
+        self.schedule_retry(Some(e));
+    }
+
+    fn schedule_retry(&mut self, error: Option<Error>) {
+        if self.closed {
+            return;
+        }
+        let delay = backoff(self.attempt);
+        self.attempt = self.attempt.saturating_add(1);
+        self.retry_at = Some(Instant::now() + delay);
+        // A failed replacement while the old connection serves is silent.
+        if !self.is_ready() && (self.ever_connected || self.attempt > 1) {
+            self.emit(WireEvent::Reconnecting {
+                attempt: self.attempt,
+                retry_in: delay,
+                error: error.unwrap_or_else(|| Error::unreachable("the connection to your computer dropped")),
+            });
+        }
+    }
+
+    fn retry_after(&mut self, delay: Duration, error: Error) {
+        self.attempt = self.attempt.saturating_add(1);
+        self.retry_at = Some(Instant::now() + delay);
+        self.emit(WireEvent::Reconnecting { attempt: self.attempt, retry_in: delay, error });
+    }
+
+    // ---- frames ----
+
+    fn on_frame(&mut self, generation: u64, frame: Frame) {
+        if self.next.as_ref().is_some_and(|c| c.generation == generation) {
+            match frame {
+                Frame::Json(v) if v.get("method").and_then(Value::as_str) == Some("ready") => {
+                    // Make before break: the new connection takes over.
+                    let next = self.next.take().expect("checked");
+                    if let Some(old) = self.conn.replace(next) {
+                        let _ = old.tx.send(Message::Close(None));
+                    }
+                    let params = v.get("params").cloned().unwrap_or(Value::Null);
+                    self.on_ready(params);
+                }
+                Frame::Closed { code, reason } => {
+                    let failed = self.next.take().expect("checked");
+                    self.on_closed(failed, code, reason);
+                }
+                _ => log::debug("wire: a frame before ready; ignored"),
+            }
+            return;
+        }
+        let current = self.conn.as_ref().map(|c| c.generation);
+        if current != Some(generation) {
+            return;
+        }
+        if let Some(c) = self.conn.as_mut() {
+            c.last_rx = Instant::now();
+        }
+        match frame {
+            Frame::Json(v) => self.on_json(v),
+            Frame::Binary(channel, data) => self.emit(WireEvent::Binary { channel, data }),
+            Frame::Closed { code, reason } => {
+                let c = self.conn.take().expect("checked");
+                self.on_closed(c, code, reason);
+            }
+        }
+    }
+
+    fn on_json(&mut self, v: Value) {
+        if let Some(id) = v.get("id").and_then(Value::as_u64) {
+            if v.get("method").is_none() {
+                return self.on_response(id, v);
+            }
+        }
+        let method = v.get("method").and_then(Value::as_str).unwrap_or("");
+        let params = v.get("params").cloned().unwrap_or(Value::Null);
+        match method {
+            "ready" => self.on_ready(params),
+            "sessions.attached" => {
+                let Some(id) = params.get("sessionId").and_then(Value::as_str).map(str::to_string) else { return };
+                let result = match params.get("error").filter(|e| !e.is_null()) {
+                    Some(e) => Err(crate::http::api_error(e.get("status").and_then(Value::as_u64).unwrap_or(400) as u16, e, &http::HeaderMap::new())),
+                    None => Ok(params),
+                };
+                self.on_attach_result(&id, result);
+            }
+            "event" => self.on_event(Event(params)),
+            "delta" => {
+                let d = Delta(params);
+                if self.sessions.get(d.session_id()).is_some_and(|s| !s.paging) {
+                    self.emit(WireEvent::Delta(d));
+                }
+            }
+            "session.detached" => {
+                let id = params.get("sessionId").and_then(Value::as_str).unwrap_or("").to_string();
+                let reason = params.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
+                if reason == "too_far_behind" {
+                    self.start_paging(&id);
+                } else if self.sessions.remove(&id).is_some() {
+                    self.order.retain(|s| s != &id);
+                    self.emit(WireEvent::Detached { session_id: id, reason });
+                }
+            }
+            "terminal.exited" => self.emit(WireEvent::TerminalExited(params)),
+            other => log::debug(&format!("wire: ignoring notification {other}")),
+        }
+    }
+
+    fn on_ready(&mut self, params: Value) {
+        let Some(c) = self.conn.as_mut() else { return };
+        c.ready = true;
+        let took = c.dial_started.elapsed();
+        c.expires_at = params
+            .get("expiresInMs")
+            .and_then(Value::as_u64)
+            .map(|ms| Instant::now() + Duration::from_millis(ms).mul_f64(0.9).saturating_sub(Duration::from_secs(5)));
+        let resumed_tls = c.resumed_tls;
+        let generation = c.generation;
+        let url_attached = c.url_attached.clone();
+        let reconnect = self.ever_connected;
+        self.ever_connected = true;
+        self.down_since = None;
+        self.retry_at = None;
+        self.keepalive_at = Instant::now() + KEEPALIVE;
+        let connection_id = params.get("connectionId").and_then(Value::as_str).unwrap_or("").to_string();
+        let region = params.pointer("/server/region").and_then(Value::as_str).map(str::to_string);
+        if !reconnect {
+            crate::timing::get().mark_connect(took, resumed_tls);
+        }
+        if let Some(r) = &region {
+            crate::timing::get().edge(r);
+        }
+        self.emit(WireEvent::Connected { connection_id, region, took, resumed_tls, reconnect });
+
+        // Requests not answered on the old connection go again.
+        let drop_pending = std::mem::take(&mut self.drop_pending);
+        let mut failed = Vec::new();
+        let mut resend = Vec::new();
+        for (id, p) in &mut self.pending {
+            if p.sent_on == Some(generation) {
+                continue;
+            }
+            match &p.purpose {
+                Purpose::Ping(_) | Purpose::Attach(_) => failed.push(*id),
+                Purpose::User(_) if drop_pending && p.sent_on.is_some() => failed.push(*id),
+                Purpose::User(_) => {
+                    resend.push(json!({"jsonrpc": "2.0", "id": id, "method": p.method, "params": p.params}));
+                    p.sent_on = Some(generation);
+                }
+            }
+        }
+        for id in failed {
+            if let Some(p) = self.pending.remove(&id) {
+                if let Purpose::User(reply) = p.purpose {
+                    let _ = reply.send(Err(Error::new("too_large", "the message was too large for the connection")));
+                }
+            }
+        }
+        self.probe = None;
+        for m in resend {
+            self.write(m);
+        }
+        // Sessions the URL did not attach are attached with a request.
+        let ids: Vec<String> = self.order.clone();
+        for id in ids {
+            if url_attached.contains(&id) {
+                continue;
+            }
+            if self.sessions.get(&id).is_some_and(|s| !s.paging) {
+                self.send_attach(&id);
+            }
+        }
+    }
+
+    fn on_response(&mut self, id: u64, v: Value) {
+        let Some(p) = self.pending.remove(&id) else { return };
+        let result = match v.get("error") {
+            Some(e) if !e.is_null() => Err(rpc_error(e)),
+            _ => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
+        };
+        match p.purpose {
+            Purpose::User(reply) => {
+                let _ = reply.send(result);
+            }
+            Purpose::Attach(session_id) => self.on_attach_result(&session_id, result),
+            Purpose::Ping(sent) => {
+                let rtt = sent.elapsed();
+                self.rtt = Some(rtt);
+                crate::timing::get().ping(rtt);
+                if self.probe.is_some_and(|(pid, _)| pid == id) {
+                    self.probe = None;
+                }
+            }
+        }
+    }
+
+    fn on_attach_result(&mut self, id: &str, result: Result<Value>) {
+        let Some(s) = self.sessions.get_mut(id) else { return };
+        s.attaching = false;
+        s.resync = false;
+        let v = match result {
+            Ok(v) => v,
+            Err(e) => {
+                match e.code.as_str() {
+                    "cursor_ahead" => {
+                        // Our cursor is past the log: it was rewritten.
+                        let session = e.extra.get("session").cloned().unwrap_or(Value::Null);
+                        let start = session.get("epochStartSeq").and_then(Value::as_u64).unwrap_or(0);
+                        let last = session.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
+                        let epoch = session.get("logEpoch").and_then(Value::as_u64);
+                        let new_cursor = s.cursor.unwrap_or(0).min(start.saturating_sub(1)).min(last);
+                        s.cursor = Some(new_cursor);
+                        s.epoch = epoch.or(s.epoch);
+                        let id = id.to_string();
+                        self.emit(WireEvent::EpochReset { session_id: id.clone(), epoch_start_seq: new_cursor + 1 });
+                        self.send_attach(&id);
+                    }
+                    "too_far_behind" => self.start_paging(id),
+                    _ => {
+                        let id = id.to_string();
+                        self.sessions.remove(&id);
+                        self.order.retain(|s| s != &id);
+                        self.emit(WireEvent::Attached { session_id: id, result: Err(e) });
+                    }
+                }
+                return;
+            }
+        };
+        let info = match parse_attach(&v) {
+            Ok(i) => i,
+            Err(e) => {
+                self.emit(WireEvent::Attached { session_id: id.to_string(), result: Err(e) });
+                return;
+            }
+        };
+        let known_epoch = s.epoch.or(s.want.log_epoch);
+        s.epoch = Some(info.log_epoch);
+        if let (Some(old), Some(c)) = (known_epoch, s.cursor) {
+            if old != info.log_epoch && c >= info.epoch_start_seq {
+                let new_cursor = info.epoch_start_seq.saturating_sub(1);
+                s.cursor = Some(new_cursor);
+                let id = id.to_string();
+                self.emit(WireEvent::EpochReset { session_id: id.clone(), epoch_start_seq: info.epoch_start_seq });
+                self.emit(WireEvent::Attached { session_id: id.clone(), result: Ok(Box::new(info)) });
+                self.send_attach(&id);
+                return;
+            }
+        }
+        if s.cursor.is_none() && s.want.after.is_none() && s.want.tail_turns.is_none() {
+            s.cursor = Some(info.session.last_seq);
+        }
+        if let Some(c) = s.cursor {
+            if info.session.last_seq > c + MAX_REPLAY {
+                let id = id.to_string();
+                self.emit(WireEvent::Attached { session_id: id.clone(), result: Ok(Box::new(info)) });
+                self.start_paging(&id);
+                return;
+            }
+        }
+        self.emit(WireEvent::Attached { session_id: id.to_string(), result: Ok(Box::new(info)) });
+    }
+
+    fn on_event(&mut self, ev: Event) {
+        let id = ev.session_id().to_string();
+        let seq = ev.seq();
+        let Some(s) = self.sessions.get_mut(&id) else { return };
+        if s.paging {
+            return;
+        }
+        match s.cursor {
+            Some(c) if seq <= c => return,
+            Some(c) if seq > c + 1 => {
+                if !s.resync {
+                    log::debug(&format!("wire: gap in {id} after {c} (got {seq}); attaching again"));
+                    s.resync = true;
+                    self.send_attach(&id);
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        s.resync = true;
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+        s.cursor = Some(seq);
+        s.unacked += 1;
+        if s.first_unacked.is_none() {
+            s.first_unacked = Some(Instant::now());
+        }
+        let ack_now = s.unacked >= ACK_EVERY;
+        self.emit(WireEvent::Event(ev));
+        if ack_now {
+            self.flush_acks(false);
+        }
+    }
+
+    fn on_closed(&mut self, c: Conn, code: u16, reason: String) {
+        log::info(&format!("wire: connection closed ({code}{})", if reason.is_empty() { String::new() } else { format!(" {reason}") }));
+        if c.up_since.elapsed() >= STABLE {
+            self.attempt = 0;
+        }
+        if !self.is_ready() {
+            self.probe = None;
+            if self.down_since.is_none() {
+                self.down_since = Some(Instant::now());
+            }
+            for s in self.sessions.values_mut() {
+                s.attaching = false;
+                s.resync = false;
+            }
+        }
+        let err = |code_s: &str, msg: String| Error::unreachable(msg).with("closeCode", code_s.parse::<u64>().unwrap_or(0));
+        match code {
+            4400 => {
+                let mut e = Error::usage(format!("the server refused the connection: {}", if reason.is_empty() { "protocol error" } else { &reason }));
+                e.code = "usage".into();
+                self.emit(WireEvent::Fatal(e));
+                self.close();
+            }
+            4001 | 4003 => {
+                // The key may be revoked or expired; HTTP says which.
+                match self.http.clone() {
+                    Some(http) => {
+                        let internal = self.internal_tx.clone();
+                        tokio::spawn(async move {
+                            let r = http.get("/me", &[]).await.map(|me| wire_url_from_me(&me));
+                            let _ = internal.send(Internal::MeChecked(r));
+                        });
+                    }
+                    None => {
+                        self.emit(WireEvent::Fatal(Error::new("unauthenticated", "the API key was refused").hint("run `opc login`")));
+                        self.close();
+                    }
+                }
+            }
+            4008 => {
+                let ids: Vec<String> = self.order.clone();
+                for id in ids {
+                    self.start_paging(&id);
+                }
+                self.dial_now();
+            }
+            4503 => {
+                let ms = serde_json::from_str::<Value>(&reason).ok().and_then(|v| v.get("retryAfterMs").and_then(Value::as_u64)).unwrap_or(1000);
+                self.retry_after(Duration::from_millis(ms), Error::new("computer_unavailable", "your computer is busy; retrying"));
+            }
+            4029 => {
+                let e = Error::new("too_many_attached", "too many connections for this key");
+                let delay = backoff(self.attempt.max(3));
+                self.retry_after(delay, e);
+            }
+            1009 => {
+                self.drop_pending = true;
+                self.dial_now();
+            }
+            1001 | 1012 => self.dial_now(),
+            _ => self.schedule_retry(Some(err(&code.to_string(), format!("the connection to your computer dropped ({code})")))),
+        }
+    }
+
+    fn dial_now(&mut self) {
+        self.retry_at = Some(Instant::now());
+        if self.ever_connected {
+            self.emit(WireEvent::Reconnecting { attempt: self.attempt, retry_in: Duration::ZERO, error: Error::unreachable("reconnecting") });
+        }
+    }
+
+    // ---- paging over HTTP ----
+
+    fn start_paging(&mut self, id: &str) {
+        let Some(s) = self.sessions.get_mut(id) else { return };
+        if s.paging {
+            return;
+        }
+        let Some(http) = self.http.clone() else {
+            // No HTTP: attach from where we are and let the server decide.
+            return;
+        };
+        s.paging = true;
+        s.attaching = false;
+        let after = s.cursor.unwrap_or(0);
+        self.page(http, id.to_string(), after);
+    }
+
+    fn page(&self, http: Http, id: String, after: u64) {
+        let internal = self.internal_tx.clone();
+        tokio::spawn(async move {
+            let path = crate::http::session_path(&id, "/events");
+            let q = vec![("after".to_string(), after.to_string()), ("limit".to_string(), "500".to_string())];
+            let r = http.get(&path, &q).await.map(|v| {
+                let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+                let last = v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
+                let next = v.get("nextAfter").and_then(Value::as_u64);
+                (events, last, next)
+            });
+            let _ = internal.send(Internal::Paged { session_id: id, result: r });
+        });
+    }
+
+    fn on_paged(&mut self, id: String, result: Result<(Vec<Value>, u64, Option<u64>)>) {
+        let Some(s) = self.sessions.get_mut(&id) else { return };
+        match result {
+            Ok((events, last, next)) => {
+                let mut delivered = Vec::new();
+                for v in events {
+                    let ev = Event(v);
+                    let seq = ev.seq();
+                    match s.cursor {
+                        Some(c) if seq <= c => continue,
+                        Some(c) if seq > c + 1 => break,
+                        _ => {}
+                    }
+                    s.cursor = Some(seq);
+                    delivered.push(ev);
+                }
+                let cursor = s.cursor.unwrap_or(0);
+                let close_enough = last.saturating_sub(cursor) <= MAX_REPLAY;
+                let done = close_enough || next.is_none() || delivered.is_empty();
+                for ev in delivered {
+                    self.emit(WireEvent::Event(ev));
+                }
+                if done {
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        s.paging = false;
+                    }
+                    if self.is_ready() {
+                        self.send_attach(&id);
+                    }
+                } else if let Some(http) = self.http.clone() {
+                    self.page(http, id, cursor);
+                }
+            }
+            Err(e) => {
+                if matches!(e.code.as_str(), "session_not_found" | "forbidden" | "unauthenticated") {
+                    self.sessions.remove(&id);
+                    self.order.retain(|s| s != &id);
+                    self.emit(WireEvent::Attached { session_id: id, result: Err(e) });
+                    return;
+                }
+                // Try again shortly; the wire is still the way back.
+                let http = self.http.clone().expect("paging needs http");
+                let after = s.cursor.unwrap_or(0);
+                let internal = self.internal_tx.clone();
+                let id2 = id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let path = crate::http::session_path(&id2, "/events");
+                    let q = vec![("after".to_string(), after.to_string()), ("limit".to_string(), "500".to_string())];
+                    let r = http.get(&path, &q).await.map(|v| {
+                        (
+                            v.get("events").and_then(Value::as_array).cloned().unwrap_or_default(),
+                            v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0),
+                            v.get("nextAfter").and_then(Value::as_u64),
+                        )
+                    });
+                    let _ = internal.send(Internal::Paged { session_id: id2, result: r });
+                });
+            }
+        }
+    }
+}
+
+fn new_sess(want: Attach) -> Sess {
+    Sess {
+        cursor: want.after,
+        epoch: want.log_epoch,
+        want,
+        attaching: false,
+        resync: false,
+        paging: false,
+        unacked: 0,
+        first_unacked: None,
+    }
+}
+
+/// `computer.wireUrl`, or a top-level `wireUrl`, from `GET /me`.
+pub fn wire_url_from_me(me: &Value) -> Option<String> {
+    me.pointer("/computer/wireUrl")
+        .or_else(|| me.get("wireUrl"))
+        .and_then(Value::as_str)
+        .filter(|u| u.starts_with("wss://") || u.starts_with("ws://"))
+        .map(str::to_string)
+}
+
+/// Immediate, then 250 ms doubling to 8 s, with ±20 % jitter.
+pub fn backoff(attempt: u32) -> Duration {
+    if attempt == 0 {
+        return Duration::ZERO;
+    }
+    let base = BACKOFF_START.saturating_mul(1u32 << (attempt - 1).min(6)).min(BACKOFF_MAX);
+    let r = u16::from_le_bytes(crate::ids::random_bytes::<2>()) as f64 / u16::MAX as f64;
+    base.mul_f64(0.8 + 0.4 * r)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_grows_and_caps() {
+        assert_eq!(backoff(0), Duration::ZERO);
+        let b1 = backoff(1);
+        assert!(b1 >= Duration::from_millis(200) && b1 <= Duration::from_millis(300), "{b1:?}");
+        for n in 6..20 {
+            let b = backoff(n);
+            assert!(b >= Duration::from_millis(6400) && b <= Duration::from_millis(9600), "{b:?}");
+        }
+    }
+
+    #[test]
+    fn rpc_errors_map_to_api_errors() {
+        let e = rpc_error(&json!({"code": -32000, "message": "x", "data": {"code": "session_busy", "message": "busy", "status": 409}}));
+        assert_eq!(e.code, "session_busy");
+        assert_eq!(e.status, Some(409));
+        let e = rpc_error(&json!({"code": -32602, "message": "bad params"}));
+        assert_eq!(e.code, "invalid_request");
+        assert_eq!(e.exit_code(), 2);
+    }
+
+    #[test]
+    fn wire_url_from_me_prefers_computer() {
+        assert_eq!(wire_url_from_me(&json!({"computer": {"wireUrl": "wss://a/v1"}, "wireUrl": "wss://b/v1"})).as_deref(), Some("wss://a/v1"));
+        assert_eq!(wire_url_from_me(&json!({"wireUrl": "wss://b/v1"})).as_deref(), Some("wss://b/v1"));
+        assert_eq!(wire_url_from_me(&json!({"wireUrl": "https://nope"})), None);
+    }
+}
