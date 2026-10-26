@@ -135,7 +135,7 @@ pub async fn run_new(ctx: &mut Ctx, run: RunArgs, message: Option<String>) -> Re
     if !ctx.tty.interactive() {
         return Err(Error::usage("the interactive session needs a terminal: use opc -p"));
     }
-    let id = crate::ids::mint_session_id();
+    let id = super::run::new_session_id(ctx, &run.new)?;
     let key = run.new.idempotency_key.clone().unwrap_or_else(crate::ids::idempotency_key);
     let create = Create { body: create_body(&id, &run), key, push: run.new.push.clone() };
     let start = Start {

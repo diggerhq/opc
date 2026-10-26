@@ -83,6 +83,8 @@ enum Bg {
     Created { out: Option<u64>, session: Result<Value>, sent: Option<Result<Value>>, notes: Vec<String> },
     Sent { out: u64, result: Result<Value> },
     Me(Value),
+    /// The connection's URL, found with `/me`.
+    WireUrl(String),
     Answered { ask: String, always: Option<String>, result: Result<Value> },
     Secret { ask: String, name: String, scope: String, result: Result<()> },
     Sessions(Vec<Session>),
@@ -179,6 +181,7 @@ pub async fn session(ctx: &Ctx, start: Start) -> Result<Exit> {
     // The first frame, before any network.
     app.draw(true);
     app.timing.first_frame = Some(start.launched.elapsed());
+    crate::timing::get().mark_prompt();
     let r = app.run(start).await;
     app.finish(r.as_ref().err());
     drop(guard);
@@ -257,21 +260,16 @@ impl<'a> App<'a> {
 
     async fn run(&mut self, start: Start) -> Result<Exit> {
         let mut keys = EventStream::new();
-        // The connection: the URL may need `/me` the first time.
-        let opts = WireOptions {
-            url: self.ctx.wire_url().await,
-            key: self.ctx.require_key()?.to_string(),
-            deltas: true,
-            resume: !start.read_only,
-            read_only: start.read_only,
-            give_up: None,
-        };
-        let attaches = match &self.create {
-            CreateState::Lazy(_) => vec![],
-            _ => vec![start.attach.clone()],
-        };
-        let (wire, mut rx): (WireHandle, UnboundedReceiver<WireEvent>) = Wire::open(opts, attaches, Some(self.ctx.http.clone()));
-        self.wire = Some(wire);
+        // The connection. Its URL may need `/me` the first time against a
+        // non-default API: that happens alongside the keys, never before them.
+        let mut rx: Option<UnboundedReceiver<WireEvent>> = None;
+        match self.ctx.wire_url_now() {
+            Some(url) => rx = Some(self.open_wire(url, &start)?),
+            None => {
+                let ctx = self.ctx;
+                self.futs.push(Box::pin(async move { Bg::WireUrl(ctx.wire_url().await) }));
+            }
+        }
         self.m.connecting();
         let http = self.ctx.http.clone();
         self.futs.push(Box::pin(async move { http.get("/me", &[]).await.map(Bg::Me).unwrap_or(Bg::Quiet) }));
@@ -290,7 +288,7 @@ impl<'a> App<'a> {
                 Tick,
             }
             let step = tokio::select! {
-                ev = rx.recv() => Step::Wire(ev),
+                ev = async { rx.as_mut().expect("guarded").recv().await }, if rx.is_some() => Step::Wire(ev),
                 k = keys.next() => Step::Term(k),
                 Some(b) = self.futs.next(), if !self.futs.is_empty() => Step::Bg(b),
                 _ = tick.tick() => Step::Tick,
@@ -300,7 +298,7 @@ impl<'a> App<'a> {
                 Step::Wire(Some(ev)) => {
                     self.wire_event(ev)?;
                     // Drain what is already here before drawing.
-                    while let Ok(ev) = rx.try_recv() {
+                    while let Some(Ok(ev)) = rx.as_mut().map(|r| r.try_recv()) {
                         self.wire_event(ev)?;
                     }
                     self.dirty = true;
@@ -309,6 +307,10 @@ impl<'a> App<'a> {
                 Step::Term(Some(Err(_))) => {}
                 Step::Term(Some(Ok(ev))) => {
                     self.term_event(ev).await;
+                    self.dirty = true;
+                }
+                Step::Bg(Bg::WireUrl(url)) => {
+                    rx = Some(self.open_wire(url, &start)?);
                     self.dirty = true;
                 }
                 Step::Bg(b) => {
@@ -326,6 +328,30 @@ impl<'a> App<'a> {
     }
 
     // ---- the connection ---------------------------------------------------
+
+    /// Opens the connection, attached to the session unless it is still to
+    /// be created on the first send.
+    fn open_wire(&mut self, url: String, start: &Start) -> Result<UnboundedReceiver<WireEvent>> {
+        let opts = WireOptions {
+            url,
+            key: self.ctx.require_key()?.to_string(),
+            deltas: true,
+            resume: !start.read_only,
+            read_only: start.read_only,
+            give_up: None,
+        };
+        let attaches = match &self.create {
+            CreateState::Lazy(_) => vec![],
+            _ => {
+                let mut a = start.attach.clone();
+                a.session_id = self.m.session_id.clone();
+                vec![a]
+            }
+        };
+        let (wire, rx) = Wire::open(opts, attaches, Some(self.ctx.http.clone()));
+        self.wire = Some(wire);
+        Ok(rx)
+    }
 
     fn wire_event(&mut self, ev: WireEvent) -> Result<()> {
         let now = now_ms();
@@ -345,6 +371,7 @@ impl<'a> App<'a> {
                 Ok(info) => {
                     if self.timing.attached.is_none() {
                         self.timing.attached = Some(self.timing.launched.elapsed());
+                        crate::timing::get().mark_ready();
                     }
                     if let Some(from) = self.pending_truncate.take() {
                         crate::cache::truncate_events(&id, info.log_epoch, from);
@@ -643,6 +670,7 @@ impl<'a> App<'a> {
                 self.m.sent(out, result.as_ref(), now);
                 self.effects();
             }
+            Bg::WireUrl(_) => {}
             Bg::Me(v) => {
                 self.me = v.pointer("/person/id").and_then(Value::as_str).map(str::to_string);
                 self.m.me = self.me.clone();
@@ -912,12 +940,8 @@ impl<'a> App<'a> {
             }
             AskOut::Answer(body) => {
                 let always = if body.get("decision").and_then(Value::as_str) == Some("always") { a.ask.approval.as_ref().and_then(|x| x.always_allows.clone()) } else { None };
-                let mut params = json!({"sessionId": self.m.session_id, "askId": ask_id});
-                if let (Some(p), Some(b)) = (params.as_object_mut(), body.as_object()) {
-                    for (k, v) in b {
-                        p.insert(k.clone(), v.clone());
-                    }
-                }
+                // The schema's `asks.answer` takes the answer whole, as `answer`.
+                let params = json!({"sessionId": self.m.session_id, "askId": ask_id, "answer": body});
                 self.answered.insert(ask_id.clone());
                 self.ask_focus = false;
                 let Some(w) = self.wire.clone() else { return };

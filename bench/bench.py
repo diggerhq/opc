@@ -18,6 +18,7 @@ an address that never answers: usable on any machine and in every CI run.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import pty
@@ -26,9 +27,11 @@ import select
 import shutil
 import signal
 import statistics
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import urllib.request
 
@@ -78,12 +81,17 @@ class Bench:
         if os.path.exists(tfile):
             os.unlink(tfile)
         env = dict(self.env, OPC_TIMING_FILE=tfile, TERM="xterm-256color", COLUMNS="120", LINES="40")
+        t0 = time.monotonic()
         pid, fd = pty.fork()
         if pid == 0:
             os.execve(self.opc, [self.opc, *argv], env)
+        # A terminal of a usual size that answers the device-attributes query
+        # crossterm sends, as real terminals do.
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
         out = b""
         deadline = time.monotonic() + timeout
         seen_at = None
+        first = None
         try:
             while time.monotonic() < deadline:
                 r, _, _ = select.select([fd], [], [], 0.05)
@@ -95,22 +103,27 @@ class Bench:
                     if not chunk:
                         break
                     out += chunk
-                    if seen_at is None and out:
+                    if b"\x1b[c" in chunk:
+                        os.write(fd, b"\x1b[?62;22c")
+                    if seen_at is None and b"type a message" in out:
                         seen_at = time.monotonic()
+                        first = (seen_at - t0) * 1000
                 if seen_at is not None and time.monotonic() - seen_at >= max(settle, 0.2):
                     os.write(fd, b"\x04")
                     seen_at = float("inf")
                     deadline = min(deadline, time.monotonic() + 5)
         finally:
             try:
-                _, status = os.waitpid(pid, os.WNOHANG)
-                if status == 0:
+                done, _ = os.waitpid(pid, os.WNOHANG)
+                if done == 0:
                     os.kill(pid, signal.SIGTERM)
                     os.waitpid(pid, 0)
-            except ChildProcessError:
+            except (ChildProcessError, ProcessLookupError):
                 pass
             os.close(fd)
-        return json.load(open(tfile)) if os.path.exists(tfile) else {}
+        t = json.load(open(tfile)) if os.path.exists(tfile) else {}
+        t["wallPrompt"] = first
+        return t
 
     # ---- gates -------------------------------------------------------
 
@@ -159,11 +172,14 @@ class Bench:
         self.rtt = float(re.match(r"(\d+)", rt["detail"]).group(1))
 
     def row_prompt(self):
-        values = []
+        values, wall = [], []
         for _ in range(self.args.runs):
             t = self.interactive([])
             values.append(t.get("prompt"))
+            wall.append(t.get("wallPrompt"))
         self.gate("launch → prompt", values, 10)
+        # The same, seen from outside: fork and exec included, as a person sees it.
+        self.gate("launch → prompt on screen (wall)", wall, 10)
 
     def row_live(self):
         values = []

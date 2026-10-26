@@ -229,6 +229,9 @@ struct Actor {
     next: Option<Conn>,
     /// The generation being dialed, and when the dial started.
     dialing: Option<(u64, Instant)>,
+    /// Frames of the connection being dialed that arrived before its dial
+    /// was reported: its reader starts at once, and `ready` can come first.
+    early: Vec<(u64, Frame)>,
     frames_tx: mpsc::UnboundedSender<(u64, Frame)>,
     frames_rx: mpsc::UnboundedReceiver<(u64, Frame)>,
     internal_tx: mpsc::UnboundedSender<Internal>,
@@ -273,6 +276,7 @@ impl Actor {
             conn: None,
             next: None,
             dialing: None,
+            early: Vec::new(),
             frames_tx,
             frames_rx,
             internal_tx,
@@ -576,6 +580,8 @@ impl Actor {
                 let Some((dialing, dial_started)) = self.dialing.filter(|(g, _)| *g == generation) else { return };
                 let _ = dialing;
                 self.dialing = None;
+                let early: Vec<Frame> = std::mem::take(&mut self.early).into_iter().filter(|(g, _)| *g == generation).map(|(_, f)| f).collect();
+                let ok = result.is_ok();
                 match result {
                     Ok(d) => {
                         // It serves once `ready` arrives; frames are tagged.
@@ -595,6 +601,11 @@ impl Actor {
                         }
                     }
                     Err(e) => self.on_dial_error(e, in_url),
+                }
+                if ok {
+                    for f in early {
+                        self.on_frame(generation, f);
+                    }
                 }
             }
             Internal::Paged { session_id, result } => self.on_paged(session_id, result),
@@ -670,6 +681,10 @@ impl Actor {
     // ---- frames ----
 
     fn on_frame(&mut self, generation: u64, frame: Frame) {
+        if self.dialing.is_some_and(|(g, _)| g == generation) {
+            self.early.push((generation, frame));
+            return;
+        }
         if self.next.as_ref().is_some_and(|c| c.generation == generation) {
             match frame {
                 Frame::Json(v) if v.get("method").and_then(Value::as_str) == Some("ready") => {

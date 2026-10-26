@@ -463,7 +463,7 @@ impl Model {
         }
         // Either may be null (the type is Option<u64> upstream).
         if let Some(c) = &s.context
-            && let (Some(u), Some(w)) = (Option::<u64>::from(c.used_tokens), Option::<u64>::from(c.window_tokens))
+            && let (Some(u), Some(w)) = (c.used_tokens, c.window_tokens)
         {
             self.context = Some((u, w));
         }

@@ -101,12 +101,24 @@ impl Ctx {
 
     /// The WebSocket URL: `OPC_WIRE_URL`, then the one `/me` gave last time,
     /// then `/me` (only for an API other than production), then the default.
-    pub async fn wire_url(&self) -> String {
+    /// The connection's URL when it is known without the network: from
+    /// `OPC_WIRE_URL`, the cache, or the default for the default API.
+    pub fn wire_url_now(&self) -> Option<String> {
         if let Ok(u) = std::env::var("OPC_WIRE_URL")
             && !u.trim().is_empty() {
-                return u.trim().to_string();
+                return Some(u.trim().to_string());
             }
         if let Some(u) = crate::cache::wire_url(&self.config.api_url) {
+            return Some(u);
+        }
+        if self.config.api_url != DEFAULT_API_URL && self.http.has_key() {
+            return None;
+        }
+        Some(DEFAULT_WIRE_URL.to_string())
+    }
+
+    pub async fn wire_url(&self) -> String {
+        if let Some(u) = self.wire_url_now() {
             return u;
         }
         if self.config.api_url != DEFAULT_API_URL && self.http.has_key()

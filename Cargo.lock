@@ -1389,6 +1389,7 @@ dependencies = [
  "hyper-util",
  "ignore",
  "jsonschema",
+ "libc",
  "predicates",
  "ratatui",
  "ring",
