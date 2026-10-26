@@ -976,24 +976,15 @@
                   "minimum": 0,
                   "maximum": 9007199254740991
                 },
-                "nextAfter": {
-                  "anyOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                "hasMore": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "events",
                 "earlierTurns",
                 "lastSeq",
-                "nextAfter"
+                "hasMore"
               ],
               "additionalProperties": true
             }
@@ -1883,7 +1874,15 @@
           "description": "null when the turn was not started by a message (`trigger` other than `message`)"
         },
         "author": {
-          "$ref": "#/$defs/Actor"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Actor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null when `trigger` is `subagent`"
         },
         "steering": {
           "type": "array",
@@ -2381,12 +2380,13 @@
         "stoppedBy": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/Actor"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "who stopped it, when it was stopped through the API"
         }
       },
       "required": [
@@ -3569,6 +3569,13 @@
               "minimum": 0,
               "maximum": 9007199254740991
             },
+            "trigger": {
+              "type": "string",
+              "description": "One of `message`, `subagent`; may gain values.",
+              "examples": [
+                "message"
+              ]
+            },
             "subagentId": {
               "anyOf": [
                 {
@@ -3583,7 +3590,9 @@
             }
           },
           "required": [
-            "position"
+            "position",
+            "trigger",
+            "subagentId"
           ],
           "additionalProperties": true
         }
@@ -3758,6 +3767,13 @@
                 }
               ]
             },
+            "trigger": {
+              "type": "string",
+              "description": "One of `message`, `subagent`; may gain values.",
+              "examples": [
+                "message"
+              ]
+            },
             "subagentId": {
               "anyOf": [
                 {
@@ -3774,7 +3790,9 @@
           "required": [
             "model",
             "effort",
-            "mode"
+            "mode",
+            "trigger",
+            "subagentId"
           ],
           "additionalProperties": true
         }

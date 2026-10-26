@@ -63,6 +63,9 @@ impl Ctx {
     pub fn new(global: Global, tty: Ttys) -> Result<Ctx> {
         let config = Config::load();
         let http = Http::new(&config)?;
+        if tty.stderr && !global.quiet {
+            crate::http::set_starting_notice(Some(Box::new(|| eprintln!("opc: starting your computer…"))));
+        }
         let no_color = global.no_color || std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
         Ok(Ctx { config, http, global, tty, color: tty.stdout && !no_color })
     }

@@ -210,6 +210,20 @@ fn retries_through_unavailable_with_backoff() {
 }
 
 #[test]
+fn cold_computer_is_retried_with_the_same_key() {
+    let fake = Fake::start();
+    fake.fail_next("POST /sessions", 2, Failure::new(503, "computer_unavailable").with("retryAfterMs", 50));
+    let o = run(&fake, &["-p", "--idempotency-key", "cold-1", "reply warm now"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.stdout.trim(), "warm now");
+    let reqs = fake.requests_to("POST /sessions");
+    assert!(reqs.len() >= 3, "{}", reqs.len());
+    let keys: Vec<_> = reqs.iter().map(|r| r.idempotency_key().map(str::to_string)).collect();
+    assert!(keys[0].is_some() && keys.iter().all(|k| k == &keys[0]), "{keys:?}");
+    assert!(reqs.iter().all(|r| r.json() == reqs[0].json()), "the retried body changed");
+}
+
+#[test]
 fn rate_limit_honours_retry_after() {
     let fake = Fake::start();
     fake.fail_next("POST /sessions", 1, Failure::rate_limited(200));

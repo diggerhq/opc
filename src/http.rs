@@ -25,6 +25,31 @@ use tokio::sync::Mutex;
 
 pub type Body = BoxBody<Bytes, std::io::Error>;
 
+/// A cold computer answers `503 computer_unavailable` while it starts; the
+/// request is retried with the same `Idempotency-Key`. Whether that is
+/// happening now, for the status line.
+static COMPUTER_STARTING: AtomicBool = AtomicBool::new(false);
+type Notice = Box<dyn Fn() + Send>;
+static STARTING_NOTICE: StdMutex<Option<Notice>> = StdMutex::new(None);
+
+/// What to do the first time a request waits for a cold computer (print a
+/// line, or nothing where the screen shows it).
+pub fn set_starting_notice(f: Option<Notice>) {
+    *STARTING_NOTICE.lock().unwrap_or_else(|e| e.into_inner()) = f;
+}
+
+/// A request is waiting for the computer to start.
+pub fn computer_starting() -> bool {
+    COMPUTER_STARTING.load(Ordering::Relaxed)
+}
+
+fn mark_computer_starting(on: bool) {
+    if COMPUTER_STARTING.swap(on, Ordering::Relaxed) != on && on
+        && let Some(f) = STARTING_NOTICE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            f();
+        }
+}
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn user_agent() -> String {
@@ -309,6 +334,7 @@ impl Http {
                 serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
             };
             if status.is_success() {
+                mark_computer_starting(false);
                 return Ok(Response { status: status.as_u16(), headers, body: value, server, request_id, took });
             }
             let mut err = api_error(status.as_u16(), &value, &headers);
@@ -318,6 +344,9 @@ impl Http {
             if matches!(status.as_u16(), 429 | 503) {
                 let wait = Duration::from_millis(err.retry_after_ms().unwrap_or(500 * u64::from(attempt.min(8))));
                 if Instant::now() + wait < budget_end {
+                    if err.code == "computer_unavailable" {
+                        mark_computer_starting(true);
+                    }
                     crate::log::info(&format!("{} {}: retrying in {}", status.as_u16(), err.code, timing::ms(wait)));
                     tokio::time::sleep(wait).await;
                     continue;

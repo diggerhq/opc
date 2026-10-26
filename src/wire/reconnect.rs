@@ -209,7 +209,9 @@ struct Conn {
 
 enum Internal {
     Dialed(u64, Result<client::Dialed>, Vec<String>),
-    Paged { session_id: String, result: Result<(Vec<Value>, u64, Option<u64>)> },
+    Paged { session_id: String, result: Result<(Vec<Value>, u64, bool)> },
+    /// Attach again after `session.detached {reason: unavailable}`.
+    Reattach(String),
     MeChecked(Result<Option<String>>),
 }
 
@@ -609,6 +611,11 @@ impl Actor {
                 }
             }
             Internal::Paged { session_id, result } => self.on_paged(session_id, result),
+            Internal::Reattach(id) => {
+                if self.is_ready() && self.sessions.get(&id).is_some_and(|s| !s.attaching && !s.paging) {
+                    self.send_attach(&id);
+                }
+            }
             Internal::MeChecked(result) => match result {
                 Ok(url) => {
                     if let Some(u) = url {
@@ -750,6 +757,22 @@ impl Actor {
                 let reason = params.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
                 if reason == "too_far_behind" {
                     self.start_paging(&id);
+                } else if reason == "epoch_changed" && self.sessions.contains_key(&id) {
+                    // The log was rewritten. Attaching again from our cursor
+                    // brings `logEpoch`/`epochStartSeq` (or `cursor_ahead`),
+                    // and the attach result rewinds and says EpochReset.
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        s.attaching = false;
+                    }
+                    self.send_attach(&id);
+                } else if reason == "unavailable" && self.sessions.contains_key(&id) {
+                    // The computer is briefly away: attach again shortly.
+                    let internal = self.internal_tx.clone();
+                    let wait = Duration::from_millis(500) + backoff(1) / 2;
+                    tokio::spawn(async move {
+                        tokio::time::sleep(wait).await;
+                        let _ = internal.send(Internal::Reattach(id));
+                    });
                 } else if self.sessions.remove(&id).is_some() {
                     self.order.retain(|s| s != &id);
                     self.emit(WireEvent::Detached { session_id: id, reason });
@@ -993,7 +1016,7 @@ impl Actor {
             }
             4503 => {
                 let ms = serde_json::from_str::<Value>(&reason).ok().and_then(|v| v.get("retryAfterMs").and_then(Value::as_u64)).unwrap_or(1000);
-                self.retry_after(Duration::from_millis(ms), Error::new("computer_unavailable", "your computer is busy; retrying"));
+                self.retry_after(Duration::from_millis(ms), Error::new("computer_unavailable", "starting your computer"));
             }
             4029 => {
                 let e = Error::new("too_many_attached", "too many connections for this key");
@@ -1034,24 +1057,13 @@ impl Actor {
     }
 
     fn page(&self, http: Http, id: String, after: u64) {
-        let internal = self.internal_tx.clone();
-        tokio::spawn(async move {
-            let path = crate::http::session_path(&id, "/events");
-            let q = vec![("after".to_string(), after.to_string()), ("limit".to_string(), "500".to_string())];
-            let r = http.get(&path, &q).await.map(|v| {
-                let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
-                let last = v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
-                let next = v.get("nextAfter").and_then(Value::as_u64);
-                (events, last, next)
-            });
-            let _ = internal.send(Internal::Paged { session_id: id, result: r });
-        });
+        fetch_page(http, self.internal_tx.clone(), id, after, Duration::ZERO);
     }
 
-    fn on_paged(&mut self, id: String, result: Result<(Vec<Value>, u64, Option<u64>)>) {
+    fn on_paged(&mut self, id: String, result: Result<(Vec<Value>, u64, bool)>) {
         let Some(s) = self.sessions.get_mut(&id) else { return };
         match result {
-            Ok((events, last, next)) => {
+            Ok((events, last, more)) => {
                 let mut delivered = Vec::new();
                 for v in events {
                     let ev = Event(v);
@@ -1066,7 +1078,7 @@ impl Actor {
                 }
                 let cursor = s.cursor.unwrap_or(0);
                 let close_enough = last.saturating_sub(cursor) <= MAX_REPLAY;
-                let done = close_enough || next.is_none() || delivered.is_empty();
+                let done = close_enough || !more || delivered.is_empty();
                 for ev in delivered {
                     self.emit(WireEvent::Event(ev));
                 }
@@ -1091,24 +1103,32 @@ impl Actor {
                 // Try again shortly; the wire is still the way back.
                 let http = self.http.clone().expect("paging needs http");
                 let after = s.cursor.unwrap_or(0);
-                let internal = self.internal_tx.clone();
-                let id2 = id.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    let path = crate::http::session_path(&id2, "/events");
-                    let q = vec![("after".to_string(), after.to_string()), ("limit".to_string(), "500".to_string())];
-                    let r = http.get(&path, &q).await.map(|v| {
-                        (
-                            v.get("events").and_then(Value::as_array).cloned().unwrap_or_default(),
-                            v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0),
-                            v.get("nextAfter").and_then(Value::as_u64),
-                        )
-                    });
-                    let _ = internal.send(Internal::Paged { session_id: id2, result: r });
-                });
+                fetch_page(http, self.internal_tx.clone(), id, after, Duration::from_secs(1));
             }
         }
     }
+}
+
+/// One page of `GET /sessions/{id}/events`, after `delay`, reported to the
+/// actor: the events, `lastSeq`, and whether more remain (`hasMore`).
+fn fetch_page(http: Http, internal: mpsc::UnboundedSender<Internal>, id: String, after: u64, delay: Duration) {
+    tokio::spawn(async move {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        let path = crate::http::session_path(&id, "/events");
+        let q = vec![("after".to_string(), after.to_string()), ("limit".to_string(), "500".to_string())];
+        let r = http.get(&path, &q).await.map(|v| page_parts(&v));
+        let _ = internal.send(Internal::Paged { session_id: id, result: r });
+    });
+}
+
+/// `{events, lastSeq, hasMore}`; an older server's `nextAfter` counts as more.
+fn page_parts(v: &Value) -> (Vec<Value>, u64, bool) {
+    let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    let last = v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
+    let more = v.get("hasMore").and_then(Value::as_bool).unwrap_or_else(|| v.get("nextAfter").is_some_and(|n| !n.is_null()));
+    (events, last, more)
 }
 
 fn new_sess(want: Attach) -> Sess {
@@ -1146,6 +1166,16 @@ pub fn backoff(attempt: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pages_end_on_has_more() {
+        let (ev, last, more) = page_parts(&serde_json::json!({"events": [{"seq": 4}], "lastSeq": 9, "hasMore": true}));
+        assert_eq!((ev.len(), last, more), (1, 9, true));
+        assert!(!page_parts(&serde_json::json!({"events": [], "lastSeq": 9, "hasMore": false})).2);
+        // Older servers: a non-null nextAfter means more.
+        assert!(page_parts(&serde_json::json!({"events": [], "lastSeq": 9, "nextAfter": 4})).2);
+        assert!(!page_parts(&serde_json::json!({"events": [], "lastSeq": 9, "nextAfter": null})).2);
+    }
 
     #[test]
     fn backoff_grows_and_caps() {

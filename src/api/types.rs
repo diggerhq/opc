@@ -400,15 +400,13 @@ pub struct Sent {
     pub seq: u64,
 }
 
-/// `GET /sessions/{id}/events` → `{events, earlierTurns, lastSeq, nextAfter}`.
+/// `GET /sessions/{id}/events` → `{events, earlierTurns, lastSeq, hasMore}`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EventPage {
     pub events: Vec<Value>,
     pub last_seq: u64,
     pub has_more: bool,
-    /// The `after` for the next page; `None` when caught up.
-    pub next_after: Option<u64>,
     pub earlier_turns: Option<Vec<Turn>>,
     pub log_epoch: Option<u64>,
     pub epoch_start_seq: Option<u64>,

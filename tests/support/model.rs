@@ -400,11 +400,7 @@ impl World {
         let t = s.turn_mut(tid).expect("turn");
         t["status"] = "running".into();
         t["startedAt"] = now().into();
-        let sub = t["subagentId"].clone();
-        let mut data = json!({"model": settings["model"], "effort": settings["effort"], "mode": settings["mode"]});
-        if !sub.is_null() {
-            data["subagentId"] = sub;
-        }
+        let data = json!({"model": settings["model"], "effort": settings["effort"], "mode": settings["mode"], "trigger": t["trigger"], "subagentId": t["subagentId"]});
         self.emit(sid, Some(tid), "turn.started", None, data);
         self.jobs.push(Job::Turn { sid: sid.into(), tid: tid.into() });
     }
@@ -513,7 +509,7 @@ impl World {
                 let position = s.turns.iter().filter(|x| x["status"] == "queued").position(|x| x["id"] == new.as_str()).unwrap() + 1;
                 let starts_now = position == 1 && s.active().is_none() && !s.suspended && !s.starting;
                 if !starts_now {
-                    self.emit(sid, Some(&new), "turn.queued", None, json!({"position": position}));
+                    self.emit(sid, Some(&new), "turn.queued", None, json!({"position": position, "trigger": "message", "subagentId": null}));
                 }
             }
         }
@@ -541,8 +537,7 @@ impl World {
         sa["durationMs"] = duration_since(&st(sa, "createdAt")).into();
         sa["result"] = result.into();
         sa["activity"] = Value::Null;
-        // The schema has stoppedBy as a string (docs: Actor); the fake sends the person id.
-        sa["stoppedBy"] = stopped_by.map(|a| a["id"].clone()).unwrap_or(Value::Null);
+        sa["stoppedBy"] = stopped_by.cloned().unwrap_or(Value::Null);
         let sa = sa.clone();
         validate("Subagent", &sa);
         let tid = st(&sa, "turnId");
@@ -630,7 +625,7 @@ impl World {
                 }
                 let tid = self.new_turn(sid, "message", Some(input.clone()), if_busy, author, None);
                 self.emit(sid, Some(&tid), "message.received", Some(author), json!({"input": input, "ifBusy": if_busy, "delivery": "queued", "interruptedTurnIds": [], "declinedAskIds": []}));
-                self.emit(sid, Some(&tid), "turn.queued", Some(author), json!({"position": queued + 1}));
+                self.emit(sid, Some(&tid), "turn.queued", Some(author), json!({"position": queued + 1, "trigger": "message", "subagentId": null}));
                 Ok((tid, "queued"))
             }
         }
@@ -656,12 +651,12 @@ impl World {
     /// A background subagent finished: the agent takes a turn of its own.
     pub fn subagent_turn(&mut self, sid: &str, said: &str) {
         let s = self.s(sid);
-        let author = s.subagent(said).and_then(|sa| s.turn(&st(sa, "turnId"))).map(|t| t["author"].clone()).unwrap_or_else(|| actor_of(&me(), "opc", None));
+        let author = Value::Null;
         let busy = s.active().is_some() || s.suspended || s.starting;
         let position = s.queued_ids().len() + 1;
         let tid = self.new_turn(sid, "subagent", None, "queue", &author, Some(said.to_string()));
         if busy {
-            self.emit(sid, Some(&tid), "turn.queued", None, json!({"position": position, "subagentId": said}));
+            self.emit(sid, Some(&tid), "turn.queued", None, json!({"position": position, "trigger": "subagent", "subagentId": said}));
         } else {
             self.advance(sid);
         }

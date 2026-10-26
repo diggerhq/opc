@@ -176,6 +176,8 @@ fn size() -> (usize, usize) {
 /// Runs the session screen until the person leaves it. The terminal is put
 /// back on every path, including errors and panics.
 pub async fn session(ctx: &Ctx, start: Start) -> Result<Exit> {
+    // The status line says it; a line on stderr would tear the screen.
+    crate::http::set_starting_notice(None);
     let guard = term::enter().map_err(|e| Error::usage(format!("cannot use the terminal: {e}")))?;
     let mut app = App::new(ctx, &start);
     // The first frame, before any network.

@@ -435,7 +435,7 @@ async fn run(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         "subagents.list" => {
             let all = c.q("status").as_deref() == Some("all");
             let limit = c.qn("limit", 1, 100)?.unwrap_or(20) as usize;
-            let items = sh.read(|w| -> ApiResult<Vec<Value>> { Ok(w.sess(c.sid())?.subagents.iter().filter(|x| all || x["status"] == "running").cloned().collect()) })?;
+            let items = sh.read(|w| -> ApiResult<Vec<Value>> { Ok(w.sess(c.sid())?.subagents.iter().rev().filter(|x| all || x["status"] == "running").cloned().collect()) })?;
             let (subs, next) = page(items, limit, c.q("cursor"))?;
             let v = json!({"subagents": subs, "nextCursor": next});
             validate("method:subagents.list", &v);
@@ -450,7 +450,7 @@ async fn run(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
             let r = sh.with(|w| -> ApiResult<(u16, Value)> {
                 let x = w.sess(c.sid())?.subagent(c.sub()).cloned().ok_or_else(sub_404)?;
                 if x["status"] != "running" {
-                    if x["status"] == "stopped" && x["stoppedBy"] == actor["id"] {
+                    if x["status"] == "stopped" && x["stoppedBy"]["id"] == actor["id"] {
                         return Ok((200, json!({"subagent": x, "seq": seq(w, c.sid())})));
                     }
                     return Err(ApiErr::new(409, "subagent_ended", format!("the subagent is {}", st(&x, "status"))).with("subagent", x));
@@ -731,8 +731,7 @@ async fn events_list(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         let candidates: Vec<&Value> = s.events.iter().skip(from_seq.saturating_sub(1) as usize).filter(|e| matches(e)).collect();
         let has_more = candidates.len() > limit;
         let events: Vec<Value> = candidates.into_iter().take(limit).cloned().collect();
-        let next_after = if has_more { events.last().map(|e| e["seq"].clone()).unwrap_or(Value::Null) } else { Value::Null };
-        Ok(json!({"events": events, "earlierTurns": earlier, "lastSeq": s.last_seq(), "hasMore": has_more, "nextAfter": next_after}))
+        Ok(json!({"events": events, "earlierTurns": earlier, "lastSeq": s.last_seq(), "hasMore": has_more}))
     })?;
     validate("method:events.list", &v);
     Ok((200, v))

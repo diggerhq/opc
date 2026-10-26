@@ -1826,10 +1826,13 @@ impl Model {
                 let secs = ((retry_at - now).max(0) as f64 / 1000.0).ceil() as u64;
                 (g().fail, format!("offline{mid}retrying in {secs} s"), Sty::Err)
             }
+            Conn::Connecting if crate::http::computer_starting() => (g().ring, "starting your computer".to_string(), Sty::Dim),
             Conn::Connecting => (g().ring, "connecting".to_string(), Sty::Dim),
             Conn::Online => {
                 if let Some(r) = &self.runtime {
                     (g().ring, r.clone(), Sty::Dim)
+                } else if crate::http::computer_starting() {
+                    (g().ring, "starting your computer".to_string(), Sty::Dim)
                 } else if self.open_asks().next().is_some() {
                     (g().ask, "waiting for you".to_string(), Sty::Warn)
                 } else if self.turn.is_some() || self.status == "running" {
