@@ -1,102 +1,88 @@
 # opc
 
-`opc` is a terminal client for your organization's [Computer](https://app.opencomputer.dev/computer), the agent that works for your organization on its own cloud machine. It is one static binary that shows a prompt before the network answers and streams the agent's output as the model writes it. Its sessions are the same sessions as Slack and the dashboard: a session started in a terminal shows up on the dashboard, and a Slack thread can be attached from a terminal, with what each side types showing on the other.
+**Your organization's Computer, in your terminal.**
 
-This repository also holds the documentation for `opc` and for the streaming session API it is built on (HTTP and the `opc.v1` WebSocket protocol), in [`docs/`](docs/).
+[Computer](https://app.opencomputer.dev/computer) is the agent your team works with in Slack. It has its own cloud machine, it works in your repositories, and it keeps going after you look away. `opc` lets you work with the same agent from a terminal: start a session or pick up a Slack thread, watch the agent work as it writes, answer its questions with a key, and leave whenever you like.
 
-**Status:** prerelease. Commands and output formats may still change before 0.1.0.
+```bash
+curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
+opc "fix the flaky test in segment.test.ts and open a PR"
+```
+
+> `opc` is a prerelease. Commands and output formats may change before 0.1.0.
+
+## Why use it
+
+- **One session, every surface.** A session started in a terminal shows up on the dashboard. `opc a <slack link>` attaches to a Slack thread, and what you type there shows up on the other side, and the other way round.
+- **Fast.** `opc` is one static binary. The prompt appears before the network answers, and the agent's text streams as the model writes it.
+- **You stay in control.** When the agent asks before running something, press `y` to allow, `n` to deny, or `a` to allow that kind of command for the rest of the session. Questions and plans are answered the same way, inline.
+- **Files go both ways.** `opc push` sends a directory to the computer, `opc pull` brings results back, `opc diff` shows what the agent changed, and `opc shell` opens a shell on its machine.
+- **Leave at any time.** `Ctrl+D` detaches and the session keeps running. `opc a -` brings you back.
+- **Built for scripts too.** `opc -p` runs one turn and prints the result as text or JSON, with exit codes that say what happened. It works in CI and from other agents.
 
 ## Install
 
-Builds exist for macOS (Apple silicon, Intel) and Linux (x86-64, arm64, statically linked). On Windows, use the Linux build under WSL 2.
+macOS (Apple silicon, Intel) and Linux (x86-64, arm64). On Windows, use WSL 2.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
 ```
 
-The script picks the archive for your platform from the latest [release](https://github.com/diggerhq/opc/releases), checks it against `SHA256SUMS` and installs `opc` to `~/.local/bin` (`OPC_INSTALL_DIR` and `OPC_VERSION` change that). Its source is [`ci/install.sh`](ci/install.sh). Run it again to update. See [Install](docs/install.mdx).
+The script downloads the latest [release](https://github.com/diggerhq/opc/releases) for your platform, checks its SHA-256 and installs it to `~/.local/bin`. It never uses `sudo`. To update, run it again. You can read what it does in [`ci/install.sh`](ci/install.sh), and [Install](docs/install.mdx) covers the options.
 
-The macOS builds are not signed: if macOS blocks the first run, `xattr -d com.apple.quarantine ~/.local/bin/opc`.
+The macOS builds are not signed yet. If macOS blocks the first run, run `xattr -d com.apple.quarantine ~/.local/bin/opc`.
 
-## Quickstart
+## Get started
 
-You need an OpenComputer organization with Computer set up. If your team uses Computer in Slack, you have one.
-
-```bash
-opc                                     # log in the first time, then a new session
-opc "fix the flaky test in segment.test.ts and open a PR"
-opc a -                                 # back to the last session
-opc a https://acme.slack.com/archives/C07ABC/p1761400000000100   # a Slack thread
-opc ls                                  # your sessions
-opc -p "summarize this week's merged PRs"   # one turn, print the result, exit
-```
-
-The first run opens your browser to confirm a short code. `opc login` does only that; `OPENCOMPUTER_API_KEY` is used instead when it is set, as in CI. If you already use the `opencomputer` CLI you are logged in: both read `~/.opencomputer/config.json`.
-
-In a session, `Ctrl+O` shows the full detail of the agent's steps, and `Ctrl+D` on an empty prompt detaches. The session keeps running on the computer. See [Quickstart](docs/quickstart.mdx) and [Keys](docs/terminal/keys.mdx).
-
-## Commands
-
-| | |
-| --- | --- |
-| `opc [message]` | Start a session and attach to it |
-| `opc -p <message>` | Non-interactive: send, wait, print the result (`--json`, `--output-format stream-json`) |
-| `opc new`, `send`, `wait`, `watch`, `log`, `interrupt` | Create, drive and follow sessions from scripts |
-| `opc a`, `ls`, `open`, `rename`, `archive`, `unarchive` | Find, attach to and manage sessions |
-| `opc ask`, `subagents` | Answer the agent's questions; list, stop and read subagents |
-| `opc push`, `pull`, `diff`, `shell` | Move files, see the agent's changes, open a shell in the workspace |
-| `opc login`, `logout`, `whoami`, `doctor` | Credentials and connectivity |
-| `opc schema`, `completion`, `config`, `help` | JSON Schema of the API objects, shell completions, settings, help topics |
-
-`opc --help`, `opc <command> --help` and `opc help <topic>` print the details. [Commands](docs/reference/commands.mdx) lists every option.
-
-## For agents and scripts
-
-`opc` runs the same without a person at the keyboard: nothing prompts or opens a browser, results are JSON on standard output, errors are JSON on standard error with `--json`, and the exit code says what happened (`0` success, `1` turn failed, `2` usage, `3` auth, `4` retry, `5` waiting for a person, `6` out of credits, `124` timed out, `130` interrupted).
-
-- [For agents and scripts](docs/cli/agents.mdx): every non-interactive command, what it prints, and recipes. Also `opc help agents`.
-- [Scripting](docs/cli/scripting.mdx), [Exit codes](docs/reference/exit-codes.mdx), [CI](docs/cli/ci.mdx).
-- `opc schema [result|event|session|turn|ask]` prints the JSON Schema of what `opc` prints.
-- The published docs site serves `/llms.txt` (an index of pages) and `/llms-full.txt` (every page in one file), generated by Mintlify.
-
-## Configuration and telemetry
-
-`opc` shares `~/.opencomputer/config.json` with the `opencomputer` CLI and keeps its caches in `~/.opencomputer/opc/`. Environment variables (`OPENCOMPUTER_API_KEY`, `OPENCOMPUTER_API_URL`, `OPC_LOG`, `NO_COLOR` and others) are listed in [Environment](docs/reference/environment.mdx).
-
-`opc` sends a few usage timings and error classes on the connection it already has open, never what you type, what the agent writes, file names or paths. To turn it off:
+You need an OpenComputer organization with Computer set up. If your team already uses Computer in Slack, you have one.
 
 ```bash
-opc config telemetry off     # kept in ~/.opencomputer/opc/settings.json
-export OPC_TELEMETRY=0       # this shell only
+opc                     # log in, then start a new session
+opc a -                 # back to your last session
+opc a <slack link>      # attach to a Slack thread
+opc ls                  # your sessions
 ```
 
-[Telemetry](docs/reference/telemetry.mdx) lists every field it sends.
+The first run opens your browser to confirm a short code. If you already use the `opencomputer` CLI, you're already logged in.
+
+In a session, press `Ctrl+O` to see the full detail of what the agent did, and `Ctrl+D` on an empty prompt to detach. The [Quickstart](docs/quickstart.mdx) and [Keys](docs/terminal/keys.mdx) cover the rest.
+
+## Scripts and CI
+
+```bash
+opc -p "summarize this week's merged PRs"                      # print the reply
+opc -p --json "is main green?" | jq -r .result                 # or the result as JSON
+OPENCOMPUTER_API_KEY=... opc -p --timeout 20m "run the nightly checks"
+```
+
+Nothing prompts or opens a browser when there's no terminal. Errors are JSON with `--json`. The exit code tells you what happened: `0` done, `1` the turn failed, `5` the agent is waiting for a person, `124` timed out, and [a few more](docs/reference/exit-codes.mdx). See [Scripting](docs/cli/scripting.mdx), [CI](docs/cli/ci.mdx), and [For agents](docs/cli/agents.mdx) (also `opc help agents`).
 
 ## Documentation
 
-The docs are a [Mintlify](https://mintlify.com) site in [`docs/`](docs/), in two parts:
+`opc --help` and `opc help <topic>` work offline. The full docs live in [`docs/`](docs/):
 
-- **opc:** [Introduction](docs/index.mdx), [Concepts](docs/concepts.mdx), [the session screen](docs/terminal/session-screen.mdx), [files](docs/cli/files.mdx), [sharing](docs/cli/sharing.mdx), [timing](docs/reference/timing.mdx), [troubleshooting](docs/troubleshooting.mdx), [changelog](docs/changelog.mdx).
-- **Session API:** [Overview](docs/api/overview.mdx), [Quickstart](docs/api/quickstart.mdx), [HTTP](docs/api/http/), [WebSocket](docs/api/websocket/), [Objects](docs/api/reference/objects.mdx). The JSON Schema is [`schema/computer-api.v1.json`](schema/computer-api.v1.json).
+- [Concepts](docs/concepts.mdx) and [the session screen](docs/terminal/session-screen.mdx)
+- [Commands](docs/reference/commands.mdx), every option of every command
+- [Troubleshooting](docs/troubleshooting.mdx)
+- [The session API](docs/api/overview.mdx) that `opc` is built on, over HTTP and WebSocket, for building your own client. The JSON Schema is [`schema/computer-api.v1.json`](schema/computer-api.v1.json).
 
-To preview the site locally:
+To preview the docs site locally, run `cd docs && npx mint dev`.
 
-```bash
-cd docs
-npx mint dev
-```
+## Telemetry
+
+`opc` sends a few timings and error classes over the connection it already has open. It never sends what you type, what the agent writes, file names or paths. [Telemetry](docs/reference/telemetry.mdx) lists every field. To turn it off, run `opc config telemetry off` or set `OPC_TELEMETRY=0`.
 
 ## Building from source
 
-Rust 1.89 or later.
+You need Rust 1.89 or later.
 
 ```bash
 cargo build --release --locked      # target/release/opc
-cargo test --locked
+cargo test --locked                 # against a built-in fake server, no account needed
 ```
 
-The tests run against an in-process fake server and need no account. [AGENTS.md](AGENTS.md) describes the layout and the checks CI runs.
+[AGENTS.md](AGENTS.md) describes the layout and the checks CI runs.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+[Apache-2.0](LICENSE)
