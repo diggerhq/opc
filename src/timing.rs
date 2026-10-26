@@ -209,6 +209,37 @@ impl Timing {
     }
 }
 
+impl Timing {
+    /// The same measurements as JSON, in milliseconds, for `bench/`
+    /// (`OPC_TIMING_FILE`).
+    pub fn report_json(&self) -> serde_json::Value {
+        use serde_json::json;
+        let f = |d: Duration| d.as_secs_f64() * 1000.0;
+        let split = |s: &Split| json!({"total": f(s.total), "ours": f(s.ours), "server": s.server.map(f), "network": f(s.network()), "model": s.model.map(f)});
+        self.with(|d| {
+            json!({
+                "prompt": d.prompt.map(f),
+                "create": d.create.map(f),
+                "connect": d.connect.map(|(c, _)| f(c)),
+                "tlsResumed": d.connect.map(|(_, r)| r),
+                "ready": d.ready.map(f),
+                "agentStart": d.agent_start.as_ref().map(|(k, t)| json!({"kind": k, "ms": t.map(f)})),
+                "turn": d.turn.as_ref().map(|t| json!({
+                    "turnId": t.turn_id,
+                    "accepted": t.accepted.as_ref().map(split),
+                    "firstToken": t.first_token.as_ref().map(split),
+                    "streaming": t.streaming.map(f),
+                })),
+                "worstFrame": d.worst_frame.map(f),
+                "rtt": median(d.pings.iter().copied().collect()).map(f),
+                "edge": d.edge,
+                "requests": d.requests.iter().map(|(l, t, s)| json!({"label": l, "ms": f(*t), "server": s.map(f)})).collect::<Vec<_>>(),
+                "total": f(self.start.elapsed()),
+            })
+        })
+    }
+}
+
 pub fn median(mut v: Vec<Duration>) -> Option<Duration> {
     if v.is_empty() {
         return None;

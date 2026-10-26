@@ -31,6 +31,7 @@ hyper = { version = "1.12", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 ignore = "0.4"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+ring = { version = "0.17", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.7"
 serde = { version = "1", features = ["derive"] }

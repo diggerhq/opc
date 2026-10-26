@@ -42,8 +42,8 @@ pub struct Settings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Context {
-    pub used_tokens: u64,
-    pub window_tokens: u64,
+    pub used_tokens: Option<u64>,
+    pub window_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

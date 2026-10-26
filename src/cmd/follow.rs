@@ -79,6 +79,8 @@ pub struct SessionState {
     /// Turns known to exist, with their trigger.
     pub triggers: HashMap<String, Option<String>>,
     pub last_seq: u64,
+    /// Attached a second time after `session_not_found`.
+    pub reattached: bool,
 }
 
 impl SessionState {
@@ -587,6 +589,17 @@ pub async fn run_until_next(
         if let Step::AttachFailed(sid, e) = &step
             && trackers.iter().any(|t| &t.session_id == sid)
         {
+            // A session this command just created can be attached before
+            // the server has it (a slow or retried create): try once more.
+            if e.code == "session_not_found"
+                && let Some(st) = f.states.get_mut(sid)
+                && st.from_start
+                && !st.reattached
+            {
+                st.reattached = true;
+                f.wire.attach(crate::wire::Attach { session_id: sid.clone(), after: Some(0), ..Default::default() });
+                continue;
+            }
             return Err(e.clone());
         }
         sink(f, &step);

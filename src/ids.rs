@@ -41,6 +41,33 @@ pub fn random_base32(n: usize) -> String {
     out
 }
 
+/// The session id for a create with the person's idempotency key: the same
+/// key from the same credential always names the same session, so a repeat
+/// sends the same body and gets `duplicate: true` instead of a conflict.
+pub fn session_id_for_key(api_key: &str, key: &str) -> String {
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    ctx.update(b"opc session id v1\0");
+    ctx.update(api_key.as_bytes());
+    ctx.update(b"\0");
+    ctx.update(key.as_bytes());
+    let d = ctx.finish();
+    let mut out = String::from("cs_");
+    let (mut acc, mut bits) = (0u32, 0);
+    for b in d.as_ref() {
+        acc = (acc << 8) | u32::from(*b);
+        bits += 8;
+        while bits >= 5 && out.len() < 19 {
+            bits -= 5;
+            out.push(ALPHABET[((acc >> bits) & 31) as usize] as char);
+        }
+        acc &= (1 << bits) - 1;
+        if out.len() == 19 {
+            break;
+        }
+    }
+    out
+}
+
 /// A new session id, minted on the client so the attach can be dialled at the
 /// same moment as the create.
 pub fn mint_session_id() -> String {
@@ -163,5 +190,18 @@ mod tests {
                 .unwrap();
         assert_eq!(ts, "1700000000.000100");
         assert!(parse_slack_link("https://example.com/archives/C/p1").is_none());
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    #[test]
+    fn derived_ids_are_stable_and_distinct() {
+        let a = super::session_id_for_key("k1", "job-1");
+        assert_eq!(a.len(), 19);
+        assert!(a.starts_with("cs_") && super::is_base32(&a[3..]));
+        assert_eq!(a, super::session_id_for_key("k1", "job-1"));
+        assert_ne!(a, super::session_id_for_key("k2", "job-1"));
+        assert_ne!(a, super::session_id_for_key("k1", "job-2"));
     }
 }

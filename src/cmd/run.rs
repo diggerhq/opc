@@ -54,6 +54,15 @@ pub fn create_body(id: &str, new: &NewSession, input: Option<&str>) -> Value {
 
 /// The idempotency key for one request: the derived key when the person gave
 /// one, else a fresh one (so the client's own retries are safe).
+/// The id for a new session: derived from the idempotency key when there is
+/// one, so a repeat is the same request; random otherwise.
+pub fn new_session_id(ctx: &Ctx, new: &NewSession) -> Result<String> {
+    Ok(match &new.idempotency_key {
+        Some(k) => ids::session_id_for_key(ctx.require_key()?, k),
+        None => ids::mint_session_id(),
+    })
+}
+
 pub fn derived_key(base: Option<&str>, suffix: &str) -> String {
     match base {
         Some(k) => format!("{k}:{suffix}"),
@@ -309,7 +318,7 @@ async fn print(ctx: &mut Ctx, args: RunArgs, message: String) -> Result<i32> {
             (sid, sent.turn, sent.seq, steered, (f, resolved.session.map(|s| s.settings)))
         }
         None => {
-            let minted = ids::mint_session_id();
+            let minted = new_session_id(ctx, &args.new)?;
             let wire = ctx.open_wire(vec![Attach { session_id: minted.clone(), after: Some(0), ..Default::default() }], deltas);
             let (wire, created) = tokio::join!(wire, create(ctx, &minted, &args.new, Some(&message)));
             let (wire, rx) = wire?;

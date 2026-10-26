@@ -4,7 +4,6 @@ use super::run::{create, remember};
 use super::{Ctx, print_json, println_out};
 use crate::cli::NewArgs;
 use crate::error::Result;
-use crate::ids;
 use serde_json::json;
 
 pub async fn run(ctx: &mut Ctx, args: NewArgs) -> Result<i32> {
@@ -13,7 +12,7 @@ pub async fn run(ctx: &mut Ctx, args: NewArgs) -> Result<i32> {
         super::check_message(m)?;
     }
     ctx.require_key()?;
-    let id = ids::mint_session_id();
+    let id = super::run::new_session_id(ctx, &args.new)?;
     let (created, sent) = create(ctx, &id, &args.new, message.as_deref()).await?;
     let sid = created.session.id.clone();
     let (turn, delivery, seq) = match &sent {

@@ -1391,6 +1391,7 @@ dependencies = [
  "jsonschema",
  "predicates",
  "ratatui",
+ "ring",
  "rustls",
  "rustls-platform-verifier",
  "serde",

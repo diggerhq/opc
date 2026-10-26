@@ -52,6 +52,11 @@ fn run(args: Vec<String>) -> i32 {
     if timing_on {
         eprint!("{}", timing::get().report());
     }
+    // For bench/: the measurements as JSON, written to a file so they never
+    // mix with the command's own output.
+    if let Some(path) = std::env::var_os("OPC_TIMING_FILE").filter(|p| !p.is_empty()) {
+        let _ = std::fs::write(path, timing::get().report_json().to_string());
+    }
     if !quiet && tty.stderr
         && let Some(latest) = http::latest_version()
             && newer(latest, env!("CARGO_PKG_VERSION")) {
