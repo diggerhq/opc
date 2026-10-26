@@ -41,7 +41,7 @@ Over a rate limit, the request fails with `429 rate_limited` and `retryAfterMs`.
 | An idle session, before it suspends | 2 hours |
 | Build output and dependencies in an idle workspace | Pruned after 24 hours idle |
 | An idempotency key | 24 hours |
-| An interrupt, before the agent process is restarted | 10 seconds |
+| An interrupt, before the agent process is restarted and the turn cancelled by force | 10 seconds |
 | A turn | No limit. A turn runs until it ends or is interrupted. |
 
 ## Retention

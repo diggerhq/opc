@@ -71,7 +71,7 @@ Lists sessions. Alias: `opc list`.
 | --- | --- |
 | `--all` | The organization's sessions |
 | `--status <status>` | `starting`, `running`, `waiting`, `idle` or `suspended`. Repeatable. |
-| `--limit <n>` | At most `n` rows, up to 500. Default 50. |
+| `--limit <n>` | At most `n` rows, up to 500. Default 50. `opc` pages through the API as needed. |
 | `--long` | Adds the last line the agent wrote |
 | `--json` | A JSON array of session objects |
 
@@ -86,7 +86,7 @@ Sends a message and returns when it is accepted.
 | Option | Does |
 | --- | --- |
 | `--mode <mode>` | `steer` (default), `queue` or `interrupt` |
-| `--json` | Prints `{ sessionId, turnId, status }` |
+| `--json` | Prints the [send receipt](/api/http/turns#send-a-message): `{ sessionId, turnId, status, delivery }` |
 
 ## opc wait
 
@@ -114,10 +114,15 @@ Prints a session's activity, read-only, until it is idle or waiting.
 ## opc interrupt
 
 ```
-opc interrupt <id>
+opc interrupt <id> [--no-wait] [--json]
 ```
 
 Interrupts the running turn and cancels queued ones.
+
+| Option | Does |
+| --- | --- |
+| `--no-wait` | Return as soon as the interrupt is recorded, instead of when the turn has stopped |
+| `--json` | Prints the cancelled turns: `[{ turnId, forced }]` |
 
 ## opc push
 

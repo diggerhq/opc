@@ -64,7 +64,7 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 | `turn.started` | The agent began the turn | `model`, `effort`, `mode` |
 | `turn.completed` | The turn finished | `text`: the agent's last message, `durationMs` |
 | `turn.failed` | The turn stopped with an error | `code`, `message`, and `model` or `tool` when named. See [Turn failures](/api/reference/errors#turn-failures). |
-| `turn.cancelled` | The turn was interrupted, or was queued when an interrupt came | `reason`: `interrupted`; `input`: the message, so a client can offer it again |
+| `turn.cancelled` | The turn was interrupted, or was queued when an interrupt came | `reason`: `interrupted`; `forced`: `true` when the agent process had to be restarted to stop it; `input`: the message, so a client can offer it again |
 
 `message.received` is in the turn it started or joined: for `steered` and `held` messages, the running turn's `turnId`.
 

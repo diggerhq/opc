@@ -70,6 +70,21 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
 
 The WebSocket's methods are on [Methods](/api/websocket/methods).
 
+## Next to the serverless agents API
+
+OpenComputer's [serverless agents](https://docs.opencomputer.dev) have a session API of the same family, and this one keeps to it wherever the two describe the same thing: the `x-api-key` header, `POST /sessions` and `GET /sessions` with `{ sessions, nextCursor }`, `POST /sessions/{id}/turns` with `queue | steer | interrupt` and a `{ turnId, status, duplicate }` receipt, `{ events }` pages, the `message.*`, `turn.*`, `tool.*`, `usage.recorded` and `runtime.*` event names, the error shape and the turn failure codes. A client that reads one reads most of the other.
+
+Where this API differs, it is on purpose, because a session that people watch keystroke by keystroke needs more than one a program polls:
+
+| Here | Serverless | Why |
+| --- | --- | --- |
+| [Asks](/api/http/asks): `approval`, `question` and `secret`, one object, answered once | `question.*` events, approvals as tool-level decisions | A client renders every kind of "the agent needs you" the same way, and the first answer from any client wins |
+| `delivery` on the send receipt, and a `turnId` for held and steered messages | `status: "held"` with no turn | A client shows at once what happened to a message, and a held message belongs to the turn it will join |
+| `message.delta`, `reasoning.delta` and `tool.delta` carry a `blockId` | Deltas are concatenated per turn | Blocks interleave with tool calls; a client cannot attach text to the right place without it |
+| `GET /events` pages carry `lastSeq` | `{ events }` only | A client knows whether it is caught up without another request |
+| Session status: `starting`, `running`, `waiting`, `idle`, `suspended` | Eleven statuses including `ended` | A session here never ends; what remains is what a client needs to draw |
+| `POST /interrupt` returns the session with the turn `cancelling` | The session goes `stopping` | The same asynchrony, expressed on the turn, which is what was interrupted |
+
 ## What the API does not do
 
 - **End or delete a session.** Sessions suspend when idle and can always be resumed. See [Retention](/api/reference/limits#retention).

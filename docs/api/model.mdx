@@ -55,11 +55,12 @@ A **turn** is the agent's work on one message. Its status moves forward only:
 ```
 queued ──▶ running ──▶ completed
    │          ├──────▶ failed
-   └──────────┴──────▶ cancelled
+   │          └──▶ cancelling ──▶ cancelled
+   └────────────────────────────▶ cancelled
 ```
 
 - Turns run one at a time, in the order they were queued.
-- A turn that is `cancelled` was interrupted, or was queued when an interrupt came.
+- A turn that is `cancelled` was interrupted, or was queued when an interrupt came. A running turn is `cancelling` from the interrupt until the agent has stopped, usually under a second.
 - A turn that `failed` has an [error](/api/reference/errors#turn-failures). The session stays usable: send another message.
 - A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response says what happened in `delivery`.
 
