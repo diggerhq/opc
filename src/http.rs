@@ -428,11 +428,11 @@ impl Http {
             let bytes = res.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
             let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
             let err = api_error(status.as_u16(), &value, &headers);
-            if method == Method::GET {
-                if let Some(wait) = self.retry_wait(&err, attempt, budget_end) {
-                    tokio::time::sleep(wait).await;
-                    continue;
-                }
+            if method == Method::GET
+                && let Some(wait) = self.retry_wait(&err, attempt, budget_end)
+            {
+                tokio::time::sleep(wait).await;
+                continue;
             }
             return Err(err);
         }

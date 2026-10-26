@@ -96,18 +96,9 @@ pub fn resume() {
 pub fn suspend_self() {
     handed_over(|| {
         // SAFETY: raise has no preconditions; it returns after SIGCONT.
-        unsafe { raise(SIGTSTP) };
+        unsafe { libc::raise(libc::SIGTSTP) };
     });
 }
-
-// libc is only a dev-dependency: the one call it would give, declared here.
-unsafe extern "C" {
-    fn raise(sig: i32) -> i32;
-}
-#[cfg(target_os = "linux")]
-const SIGTSTP: i32 = 20;
-#[cfg(not(target_os = "linux"))]
-const SIGTSTP: i32 = 18;
 
 /// Puts back the title saved by [`title`], once.
 fn pop_title() {
@@ -138,10 +129,3 @@ impl Drop for Guard {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn sigtstp_matches_libc() {
-        assert_eq!(super::SIGTSTP, libc::SIGTSTP);
-    }
-}

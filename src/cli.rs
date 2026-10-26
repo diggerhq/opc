@@ -874,10 +874,10 @@ pub fn looks_like_message(args: &[String], err: &clap::Error) -> Option<String> 
     if !matches!(err.kind(), UnknownArgument | TooManyValues | InvalidSubcommand) {
         return None;
     }
-    if let Some(ContextValue::String(bad)) = err.get(ContextKind::InvalidArg) {
-        if bad.starts_with('-') {
-            return None;
-        }
+    if let Some(ContextValue::String(bad)) = err.get(ContextKind::InvalidArg)
+        && bad.starts_with('-')
+    {
+        return None;
     }
     let (i, word) = first_word(args)?;
     if !COMMANDS.contains(&word) {
