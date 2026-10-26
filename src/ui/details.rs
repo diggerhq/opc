@@ -95,7 +95,7 @@ pub fn render(events: &[Event], subs: &[Subagent], asks: &[Ask], only: Option<&s
             }
             "turn.started" => {
                 let mut l = format!("started {at}");
-                for k in ["model", "effort", "mode", "trigger"] {
+                for k in ["model", "effort", "speed", "mode", "trigger"] {
                     if let Some(v) = s(d, k) {
                         l.push_str(&format!(" · {k} {v}"));
                     }

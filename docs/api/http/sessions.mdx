@@ -22,6 +22,7 @@ curl -s "$API/sessions" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
 | `title` | string, optional | Up to 200 characters. Default: the first 80 characters of `input`, or `Untitled`. |
 | `model` | string, optional | A model `id` from [`capabilities.models`](/api/reference/objects#capabilities). Default: your organization's. |
 | `effort` | string, optional | One of the model's `efforts` |
+| `speed` | string, optional | `fast` or `standard`. Default: `fast`. |
 | `mode` | string, optional | A permission mode from `capabilities.modes`. Default: `bypassPermissions`, as for Slack sessions. |
 | `metadata` | object, optional | Your own labels: up to 20 keys of at most 40 characters, each a string of at most 500 characters. Filter lists by them. |
 
@@ -136,6 +137,7 @@ curl -s -X PATCH "$API/sessions/cs_7f3a9k2m4q8r1t6v" -H "x-api-key: $OPENCOMPUTE
 | `title` | At once. 1 to 200 characters. |
 | `model` | From the next turn. Must be in `capabilities.models`. |
 | `effort` | From the next turn. Must be one of the model's `efforts`, which is checked against the new `model` when both are sent. |
+| `speed` | From the next turn. `fast` or `standard`. |
 | `mode` | At once, to the running turn too. Must be in `capabilities.modes`. |
 | `archived` | At once. `true` hides the session from lists unless they ask for `archived`. A new message sets it back to `false`. |
 | `metadata` | At once. Merged into the session's `metadata`: keys you send are set, a key sent as `null` is removed. Limits as for [create](#create-a-session). |

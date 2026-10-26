@@ -42,6 +42,7 @@ Starts a new session. With a message, sends it. With `-p`, runs one turn non-int
 | `--steer`, `--queue`, `--interrupt` | With `-p -s`: how the message is delivered if a turn is running. Default `--queue`. |
 | `--model <model>` | Model for the new session |
 | `--effort <level>` | Effort level for the new session |
+| `--speed <fast\|standard>` | Speed for the new session. Default `fast`. |
 | `--mode <mode>`, `--permission-mode <mode>` | Permission mode for the new session |
 | `--title <title>` | Title, instead of one from the first message |
 | `--metadata <key=value>` | Metadata for the new session. Repeatable. |
@@ -67,7 +68,7 @@ Creates a session, sends the message if given, and returns at once. Prints the s
 | Option | Does |
 | --- | --- |
 | `--push <dir>` | Pushes a directory into the new session before sending. Repeatable. |
-| `--model`, `--effort`, `--mode`, `--title` | As for `opc` |
+| `--model`, `--effort`, `--speed`, `--mode`, `--title` | As for `opc` |
 | `--metadata <key=value>` | Repeatable |
 | `--idempotency-key <k>` | A repeat returns the same session and turn |
 | `--json` | Prints what [creating a session](/api/http/sessions#create-a-session) returned: `{ session, turn, delivery, duplicate, seq }`. `turn` and `delivery` are `null` without a message. |

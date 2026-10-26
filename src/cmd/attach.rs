@@ -116,7 +116,7 @@ fn create_body(id: &str, run: &RunArgs) -> Value {
     let n = &run.new;
     let mut b = Map::new();
     b.insert("id".into(), json!(id));
-    for (k, v) in [("model", &n.model), ("effort", &n.effort), ("mode", &n.mode), ("title", &n.title)] {
+    for (k, v) in [("model", &n.model), ("effort", &n.effort), ("speed", &n.speed), ("mode", &n.mode), ("title", &n.title)] {
         if let Some(v) = v {
             b.insert(k.into(), json!(v));
         }
@@ -168,6 +168,8 @@ mod tests {
         r.new.model = Some("opus".into());
         r.new.metadata = vec![("ticket".into(), "ENG-1".into())];
         assert_eq!(create_body("cs_x", &r), json!({"id": "cs_x", "model": "opus", "metadata": {"ticket": "ENG-1"}}));
+        r.new.speed = Some("standard".into());
+        assert_eq!(create_body("cs_x", &r)["speed"], "standard");
     }
 
     #[test]

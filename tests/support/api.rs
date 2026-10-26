@@ -117,6 +117,13 @@ fn page(items: Vec<Value>, limit: usize, cursor: Option<String>) -> ApiResult<(V
     Ok((items.get(start..end).map(<[Value]>::to_vec).unwrap_or_default(), next))
 }
 
+fn check_speed(speed: Option<String>) -> ApiResult<Option<String>> {
+    match speed.as_deref() {
+        None | Some("fast" | "standard") => Ok(speed),
+        Some(s) => Err(ApiErr::bad("speed", format!("speed must be fast or standard, not {s}"))),
+    }
+}
+
 fn check_settings(model: &Option<String>, effort: &Option<String>, mode: &Option<String>) -> ApiResult<()> {
     let caps = capabilities();
     if let Some(m) = model {
@@ -485,7 +492,7 @@ async fn wait_min_seq(sh: &Arc<Shared>, c: &Call) -> ApiResult<()> {
 }
 
 async fn create(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
-    c.allow(&["id", "input", "title", "model", "effort", "mode", "metadata"])?;
+    c.allow(&["id", "input", "title", "model", "effort", "speed", "mode", "metadata"])?;
     let id = c.bs("id")?;
     if let Some(id) = &id
         && !valid_session_id(id)
@@ -502,6 +509,7 @@ async fn create(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
     }
     let (model, effort, mode) = (c.bs("model")?, c.bs("effort")?, c.bs("mode")?);
     check_settings(&model, &effort, &mode)?;
+    let speed = check_speed(c.bs("speed")?)?;
     let metadata = string_map(c.b("metadata"), "metadata")?;
     let metadata: Map<String, Value> = metadata.into_iter().filter(|(_, v)| !v.is_null()).collect();
     let v = sh.with(|w| -> ApiResult<Value> {
@@ -514,6 +522,7 @@ async fn create(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         let origin = json!({"type": via, "client": c.actor["client"], "slack": null});
         let settings = (Some(model.clone().unwrap_or_else(|| "opus-5.5".into())), Some(effort.clone().unwrap_or_else(|| "high".into())), mode.clone().unwrap_or_else(|| "default".into()));
         w.create_session(id.clone(), title, me(), origin, settings, metadata.clone(), Some(&c.actor));
+        w.s(&id).speed = speed.clone();
         let (turn, delivery) = match &input {
             Some(i) => {
                 let (tid, d) = w.send(&id, i.clone(), "queue", &c.actor)?;
@@ -576,8 +585,8 @@ fn list_sessions(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
 }
 
 fn update(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
-    c.allow(&["title", "model", "effort", "mode", "archived", "metadata"])?;
-    let fields = ["title", "model", "effort", "mode", "archived", "metadata"];
+    c.allow(&["title", "model", "effort", "speed", "mode", "archived", "metadata"])?;
+    let fields = ["title", "model", "effort", "speed", "mode", "archived", "metadata"];
     if !fields.iter().any(|f| c.body.get(*f).is_some()) {
         return Err(ApiErr::bad("body", "nothing to change"));
     }
@@ -586,6 +595,7 @@ fn update(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         return Err(ApiErr::bad("title", "title is 1 to 200 characters"));
     }
     let (model, effort, mode) = (c.bs("model")?, c.bs("effort")?, c.bs("mode")?);
+    let speed = check_speed(c.bs("speed")?)?;
     let archived = match c.b("archived") {
         None => None,
         Some(Value::Bool(b)) => Some(*b),
@@ -617,6 +627,10 @@ fn update(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
         if let Some(x) = &effort {
             set("effort", json!(s.effort), json!(x));
             s.effort = Some(x.clone());
+        }
+        if let Some(x) = &speed {
+            set("speed", json!(s.speed), json!(x));
+            s.speed = Some(x.clone());
         }
         if let Some(x) = &mode {
             set("mode", json!(s.mode), json!(x));

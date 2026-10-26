@@ -23,7 +23,7 @@ you   fix the flaky test in segment.test.ts and open a PR
 
 From the top:
 
-- **The header** names the session by its short id and title, then its model, effort and permission mode. It is printed once, when you attach, and again when a setting changes. In a new session started without a message, it is printed when your first message gives the session its title.
+- **The header** names the session by its short id and title, then its model, effort, speed (only when it is `standard`) and permission mode. It is printed once, when you attach, and again when a setting changes. In a new session started without a message, it is printed when your first message gives the session its title.
 - **The transcript** is the conversation. Your messages are marked `you`. Messages from other people carry their name and where they wrote from, such as `Mo · slack`. The agent's text is indented beneath.
 - **Steps** are the agent's tool calls, one line for each run of them. See [Steps](#steps).
 - **The todo line**, when the agent keeps a todo list, says where it is in it. See [Todos](#todos).

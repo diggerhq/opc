@@ -51,7 +51,7 @@ pub enum Exit {
 /// A session to create, for `opc` without `-s`.
 #[derive(Debug, Clone)]
 pub struct Create {
-    /// `{id, model, effort, mode, title, metadata}`, without `input`.
+    /// `{id, model, effort, speed, mode, title, metadata}`, without `input`.
     pub body: Value,
     /// The idempotency key the requests derive theirs from.
     pub key: String,
@@ -100,11 +100,15 @@ enum Bg {
     Quiet,
 }
 
+/// The values of the `speed` setting.
+const SPEEDS: [&str; 2] = ["fast", "standard"];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListKind {
     Sessions,
     Model,
     Effort,
+    Speed,
     Mode,
     Subagents,
 }
@@ -1080,11 +1084,12 @@ impl<'a> App<'a> {
                     self.exit = Some(Exit::Attach(key));
                 }
             }
-            ListKind::Model | ListKind::Effort | ListKind::Mode => {
+            ListKind::Model | ListKind::Effort | ListKind::Speed | ListKind::Mode => {
                 self.list = None;
                 let field = match kind {
                     ListKind::Model => "model",
                     ListKind::Effort => "effort",
+                    ListKind::Speed => "speed",
                     _ => "mode",
                 };
                 self.update(field, json!(key));
@@ -1171,6 +1176,10 @@ impl<'a> App<'a> {
     }
 
     fn setting_values(&self, kind: ListKind) -> Vec<(String, String)> {
+        if kind == ListKind::Speed {
+            // A closed list, not one of the capabilities.
+            return SPEEDS.iter().map(|s| (s.to_string(), s.to_string())).collect();
+        }
         let Some(caps) = &self.m.caps else { return Vec::new() };
         match kind {
             ListKind::Model => caps.models.iter().map(|m| (m.id.clone(), m.name.clone().unwrap_or_else(|| m.id.clone()))).collect(),
@@ -1196,6 +1205,8 @@ impl<'a> App<'a> {
         let (field, current) = match kind {
             ListKind::Model => ("model", self.m.settings.model.clone()),
             ListKind::Effort => ("effort", self.m.settings.effort.clone()),
+            // Not set means the default, fast.
+            ListKind::Speed => ("speed", Some(self.m.settings.speed.clone().unwrap_or_else(|| "fast".into()))),
             _ => ("mode", self.m.settings.mode.clone()),
         };
         let values = self.setting_values(kind);
@@ -1246,6 +1257,7 @@ impl<'a> App<'a> {
             }
             Cmd::Model(t) => self.setting(ListKind::Model, t),
             Cmd::Effort(t) => self.setting(ListKind::Effort, t),
+            Cmd::Speed(t) => self.setting(ListKind::Speed, t),
             Cmd::Mode(t) => self.setting(ListKind::Mode, t),
             Cmd::Title(t) => {
                 if t.trim().is_empty() {

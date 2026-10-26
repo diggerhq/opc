@@ -426,6 +426,9 @@ impl Model {
         if let Some(e) = &self.settings.effort {
             parts.push(e.clone());
         }
+        if let Some(s) = self.settings.speed.as_deref().and_then(speed_label) {
+            parts.push(s);
+        }
         if let Some(m) = self.settings.mode.as_deref().and_then(mode_label) {
             parts.push(m);
         }
@@ -868,15 +871,21 @@ impl Model {
                         self.title = t;
                     }
                 }
-                "model" | "effort" | "mode" => {
+                "model" | "effort" | "speed" | "mode" => {
                     let from = ch.get("from").and_then(Value::as_str).unwrap_or("").to_string();
                     let label = |v: &str| {
-                        if field == "mode" { mode_label(v).unwrap_or_else(|| "usual permissions".into()) } else { v.to_string() }
+                        match field.as_str() {
+                            "mode" => mode_label(v).unwrap_or_else(|| "usual permissions".into()),
+                            // Not set means the default, fast.
+                            "speed" if v.is_empty() => "fast".into(),
+                            _ => v.to_string(),
+                        }
                     };
                     let before = if field == "model" { self.model_name() } else { label(&from) };
                     match field.as_str() {
                         "model" => self.settings.model = to_s.clone(),
                         "effort" => self.settings.effort = to_s.clone(),
+                        "speed" => self.settings.speed = to_s.clone(),
                         _ => self.settings.mode = to_s.clone(),
                     }
                     let after = if field == "model" { self.model_name() } else { label(to_s.as_deref().unwrap_or_default()) };
@@ -1936,6 +1945,14 @@ pub fn mode_label(mode: &str) -> Option<String> {
     Some(l.to_string())
 }
 
+/// The speed for the header: the usual one, fast, is left out.
+pub fn speed_label(speed: &str) -> Option<String> {
+    match speed {
+        "" | "fast" => None,
+        other => Some(format!("{other} speed")),
+    }
+}
+
 /// A permission mode as a choice in the /mode list.
 pub fn mode_choice(mode: &str) -> String {
     match mode {
@@ -2309,5 +2326,18 @@ mod tests {
         assert_eq!(mode_label("bypassPermissions"), None);
         assert_eq!(mode_label("plan").as_deref(), Some("plan mode"));
         assert_eq!(mode_choice("default"), "ask before acting");
+    }
+
+    #[test]
+    fn speed_shows_in_the_header_only_when_not_fast() {
+        let mut m = model();
+        m.title = "t".into();
+        assert!(!m.header_line().plain().contains("speed"));
+        m.settings.speed = Some("fast".into());
+        assert!(!m.header_line().plain().contains("speed"));
+        m.event(&ev(1, "session.updated", "", json!({"changes": {"speed": {"from": null, "to": "standard"}}})), 0);
+        assert_eq!(m.settings.speed.as_deref(), Some("standard"));
+        assert!(m.header_line().plain().contains("standard speed"), "{}", m.header_line().plain());
+        assert!(texts(&mut m).iter().any(|l| l.contains("speed: fast → standard")));
     }
 }
