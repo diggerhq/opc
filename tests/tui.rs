@@ -22,9 +22,9 @@ struct Pty {
 impl Pty {
     fn spawn(fake: &Fake, args: &[&str]) -> Pty {
         let (mut m, mut s) = (0, 0);
-        let ws = libc::winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+        let mut ws = libc::winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
         // SAFETY: openpty fills in two descriptors we then own.
-        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) };
+        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut::<libc::termios>() as _, &mut ws as *mut libc::winsize as _) };
         assert_eq!(r, 0, "openpty");
         // SAFETY: both are fresh descriptors from openpty.
         let (master, slave) = unsafe { (OwnedFd::from_raw_fd(m), OwnedFd::from_raw_fd(s)) };
