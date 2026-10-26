@@ -115,6 +115,10 @@ Stops sending a session's events. `{ "sessionId" }`. The result is `{}`. Events 
 
 `{ sessionId, turnId?, idempotencyKey? }`. With `turnId`, it interrupts only if that turn is still running or queued; otherwise it succeeds and changes nothing. So a client interrupts the turn it saw, never one that started since. The result is what [`POST /interrupt`](/api/http/control#interrupt) returns.
 
+## Telemetry
+
+`telemetry` is a notification a client may send, with no `id` and no response: `{ v: 1, client: { name, version, os, arch }, events: [{ name, at, sessionId?, turnId?, data }] }`, 1 to 20 events, at most 16 KiB, at most 6 a minute. The server keeps only the event names and keys it knows (`opc`'s are listed in [Telemetry](/reference/telemetry)) and drops anything else without closing the connection.
+
 ## Notifications
 
 | Method | Params | Sent |

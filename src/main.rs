@@ -4,10 +4,11 @@
 use opc::cli::{self, Format};
 use opc::cmd::{self, Ctx, Ttys};
 use opc::error::{Error, exit};
-use opc::{http, log, net, timing};
+use opc::{http, log, net, telemetry, timing};
 
 fn main() {
     timing::init();
+    telemetry::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = run(args);
     std::process::exit(code);
@@ -42,10 +43,13 @@ fn run(args: Vec<String>) -> i32 {
             Ok(c) => c,
             Err(e) => return report(&e, style),
         };
-        match cmd::dispatch(parsed, &mut ctx).await {
+        let code = match cmd::dispatch(parsed, &mut ctx).await {
             Ok(code) => code,
             Err(e) => report(&e, style),
-        }
+        };
+        // The connection's last telemetry frames, if one is still writing.
+        telemetry::drain(std::time::Duration::from_millis(200)).await;
+        code
     });
     // Don't wait for background tasks (an idle connection, a cache write
     // already done synchronously) to wind down.

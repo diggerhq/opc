@@ -297,3 +297,79 @@ fn a_narrower_window_erases_the_reflowed_live_area() {
     p.keys(b"\x04");
     assert_eq!(p.wait_exit(), 0);
 }
+
+/// The telemetry events of one name opc sent on the wire.
+fn telemetry(fake: &Fake, name: &str) -> Vec<serde_json::Value> {
+    fake.ws_calls()
+        .into_iter()
+        .filter(|(m, _)| m == "telemetry")
+        .flat_map(|(_, p)| p["events"].as_array().cloned().unwrap_or_default())
+        .filter(|e| e["name"] == name)
+        .collect()
+}
+
+#[test]
+fn telemetry_measures_enter_to_first_output_once_per_turn() {
+    let fake = Fake::start();
+    let mut p = Pty::spawn(&fake, &[]);
+    p.wait_for("type a message");
+    std::thread::sleep(Duration::from_millis(300));
+    p.keys(b"reply typed and sent\r");
+    let sid = only_session(&fake);
+    p.wait_reply("typed and sent");
+    assert!(fake.wait_idle(&sid, T));
+    p.keys(b"\x04");
+    assert_eq!(p.wait_exit(), 0);
+    let turns = telemetry(&fake, "cli.turn");
+    assert_eq!(turns.len(), 1, "{turns:?}");
+    let t = &turns[0];
+    assert_eq!(t["sessionId"], sid.as_str());
+    assert_eq!(t["turnId"], fake.turns(&sid)[0]["id"]);
+    let d = &t["data"];
+    assert!(d["first_output_ms"].as_u64().zip(d["first_output_received_ms"].as_u64()).is_some_and(|(o, r)| o >= r), "{t}");
+    assert!(d["first_output_received_ms"].as_u64().zip(d["first_event_ms"].as_u64()).is_some_and(|(o, e)| o >= e), "{t}");
+    assert_eq!(d["interrupted"], false);
+    assert!(!telemetry(&fake, "cli.attach").is_empty());
+    let conns = telemetry(&fake, "cli.connection");
+    assert_eq!(conns.len(), 1, "{conns:?}");
+    assert_eq!(conns[0]["data"]["close_code"], 1000);
+    assert!(conns[0]["data"]["frames"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn telemetry_measures_an_answer_and_an_interrupt() {
+    let fake = Fake::start();
+    let mut p = Pty::spawn(&fake, &["approve"]);
+    let sid = only_session(&fake);
+    fake.wait_ask(&sid, T).expect("an ask");
+    p.wait_for("rm -rf build");
+    std::thread::sleep(Duration::from_millis(900));
+    p.keys(b"y");
+    assert!(fake.wait_idle(&sid, T));
+    p.keys(b"\x04");
+    assert_eq!(p.wait_exit(), 0);
+    let c = telemetry(&fake, "cli.control");
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!(c[0]["data"]["kind"], "answer");
+    assert_eq!(c[0]["data"]["ok"], true);
+    assert!(c[0]["data"]["round_trip_ms"].is_u64() && c[0]["data"]["applied_ms"].is_u64(), "{}", c[0]);
+
+    let fake = Fake::start();
+    let mut p = Pty::spawn(&fake, &["slow 20000"]);
+    let sid = only_session(&fake);
+    assert!(fake.wait_for(T, {
+        let sid = sid.clone();
+        move |w| w.sess(&sid).is_ok_and(|s| s.active().is_some())
+    }));
+    std::thread::sleep(Duration::from_millis(300));
+    p.keys(b"\x1b");
+    assert!(fake.wait_idle(&sid, T));
+    p.wait_for("interrupted");
+    p.keys(b"\x04");
+    assert_eq!(p.wait_exit(), 0);
+    let c = telemetry(&fake, "cli.control");
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!(c[0]["data"]["kind"], "interrupt");
+    assert_eq!(c[0]["data"]["ok"], true);
+    assert!(c[0]["data"]["applied_ms"].is_u64(), "{}", c[0]);
+}

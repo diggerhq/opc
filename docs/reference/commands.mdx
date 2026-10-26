@@ -340,6 +340,14 @@ opc completion bash|zsh|fish
 
 Prints a completion script. See [Install](/install#shell-completions).
 
+## opc config
+
+```
+opc config telemetry [on|off] [--json]
+```
+
+Shows or sets whether `opc` sends [telemetry](/reference/telemetry). Without `on` or `off` it prints the setting and why (the default, the environment or the file). `--json` prints `{ telemetry, source, settings }`. `OPC_TELEMETRY` and `DO_NOT_TRACK` win over what is set here.
+
 ## Messages that look like commands
 
 - A single argument that contains whitespace is always a message: `opc "push the fix to main"`.

@@ -57,6 +57,8 @@ pub struct Dialed {
     pub tx: mpsc::UnboundedSender<Message>,
     pub took: Duration,
     pub resumed_tls: bool,
+    /// Frames and bytes received (telemetry's `cli.connection`).
+    pub counts: std::sync::Arc<crate::telemetry::ConnCounts>,
 }
 
 /// Dials and starts the reader and writer tasks. Frames arrive on `frames`,
@@ -89,8 +91,12 @@ pub async fn dial(url: &str, key: &str, generation: u64, frames: mpsc::Unbounded
     let (mut sink, mut source) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
-    // Writer: drains the queue, flushing once per burst.
+    // Writer: drains the queue, flushing once per burst. While it runs, an
+    // exiting opc waits briefly for it so the last telemetry frame and the
+    // close go out (`telemetry::drain`).
+    let live = crate::telemetry::LiveWriter::new();
     tokio::spawn(async move {
+        let _live = live;
         while let Some(msg) = rx.recv().await {
             let closing = matches!(msg, Message::Close(_));
             if sink.feed(msg).await.is_err() {
@@ -110,9 +116,14 @@ pub async fn dial(url: &str, key: &str, generation: u64, frames: mpsc::Unbounded
     });
 
     // Reader: parses frames as they arrive.
+    let counts = crate::telemetry::ConnCounts::new();
+    let reader_counts = counts.clone();
     tokio::spawn(async move {
         let mut close = (1006u16, String::new());
         while let Some(msg) = source.next().await {
+            if let Ok(m @ (Message::Text(_) | Message::Binary(_))) = &msg {
+                reader_counts.frame(m.len());
+            }
             match msg {
                 Ok(Message::Text(t)) => match serde_json::from_str::<Value>(t.as_str()) {
                     Ok(v) => {
@@ -148,7 +159,7 @@ pub async fn dial(url: &str, key: &str, generation: u64, frames: mpsc::Unbounded
         let _ = frames.send((generation, Frame::Closed { code: close.0, reason: close.1 }));
     });
 
-    Ok(Dialed { tx, took, resumed_tls })
+    Ok(Dialed { tx, took, resumed_tls, counts })
 }
 
 fn handshake_error(e: tungstenite::Error) -> Error {

@@ -51,6 +51,7 @@
               "reference/exit-codes",
               "reference/environment",
               "reference/timing",
+              "reference/telemetry",
               "troubleshooting",
               "changelog"
             ]

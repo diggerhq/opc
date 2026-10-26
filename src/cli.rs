@@ -18,7 +18,10 @@ Exit codes:
   2    usage error                   124  timed out
   3    not logged in / no access     130  interrupted
 
-Scripting: opc help scripting";
+Scripting: opc help scripting
+Telemetry: opc sends anonymous usage timings and error classes on its
+  connection, never content. Off: OPC_TELEMETRY=0 or opc config telemetry off
+  (opc help telemetry)";
 
 pub fn version() -> &'static str {
     concat!(env!("CARGO_PKG_VERSION"), " (protocol opc.v1, schema computer-api.v1)")
@@ -268,6 +271,9 @@ pub enum Command {
     Help(HelpArgs),
     /// Print a shell completion script
     Completion(CompletionArgs),
+    /// Settings of this opc
+    #[command(subcommand)]
+    Config(ConfigCommand),
 }
 
 impl Command {
@@ -299,6 +305,7 @@ impl Command {
             Command::Schema(_) => "schema",
             Command::Help(_) => "help",
             Command::Completion(_) => "completion",
+            Command::Config(_) => "config",
         }
     }
 
@@ -319,6 +326,7 @@ impl Command {
             Command::Pull(a) => a.json,
             Command::Secret(SecretCommand::Ls(a)) => a.json,
             Command::Whoami(a) | Command::Doctor(a) => a.json,
+            Command::Config(ConfigCommand::Telemetry(a)) => a.json,
             _ => false,
         }
     }
@@ -817,6 +825,27 @@ pub struct SchemaArgs {
 pub struct HelpArgs {
     #[arg(value_name = "TOPIC")]
     pub topic: Vec<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    /// Show or set whether opc sends usage telemetry (on or off)
+    Telemetry(TelemetryArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct TelemetryArgs {
+    /// on or off; without it, the current setting and why
+    #[arg(value_enum, value_name = "STATE")]
+    pub state: Option<OnOff>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OnOff {
+    On,
+    Off,
 }
 
 #[derive(Debug, Args)]

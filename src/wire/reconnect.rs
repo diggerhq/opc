@@ -164,6 +164,12 @@ struct Sess {
     paging: bool,
     unacked: u32,
     first_unacked: Option<Instant>,
+    /// Telemetry: when an attach asked for after the connection was up
+    /// started (`None`: it rides the connection's open).
+    attach_from: Option<Instant>,
+    /// Telemetry: the connection generation this session's attach was last
+    /// reported on (`0`: never), so a resync is not a second attach.
+    reported_on: u64,
 }
 
 impl Sess {
@@ -205,6 +211,13 @@ struct Conn {
     last_rx: Instant,
     /// Sessions the URL attached on this connection.
     url_attached: Vec<String>,
+    /// The WebSocket handshake finished (telemetry's "socket open").
+    opened_at: Instant,
+    /// Dial start → `ready`.
+    took: Duration,
+    counts: std::sync::Arc<crate::telemetry::ConnCounts>,
+    /// Not the first connection (for `cli.connection`).
+    reconnect: bool,
 }
 
 enum Internal {
@@ -251,6 +264,12 @@ struct Actor {
     closed: bool,
     /// Don't resend requests after `1009`.
     drop_pending: bool,
+    /// Telemetry: the next flush (about a second after an event is
+    /// queued), the frame budget, and when the last connection was lost
+    /// (for a reconnect's gap).
+    telemetry_at: Option<Instant>,
+    telemetry_bucket: crate::telemetry::Bucket,
+    lost_at: Option<Instant>,
 }
 
 impl Actor {
@@ -295,6 +314,9 @@ impl Actor {
             keepalive_at: now + KEEPALIVE,
             closed: false,
             drop_pending: false,
+            telemetry_at: None,
+            telemetry_bucket: crate::telemetry::Bucket::new(now),
+            lost_at: None,
         }
     }
 
@@ -319,6 +341,12 @@ impl Actor {
                     if let Some(i) = internal { self.on_internal(i); }
                 }
                 _ = sleep_until(deadline.into()) => self.on_timer(),
+                _ = crate::telemetry::woken().notified() => {
+                    let at = Instant::now() + crate::telemetry::BATCH_WAIT;
+                    if self.telemetry_at.is_none_or(|t| t > at) {
+                        self.telemetry_at = Some(at);
+                    }
+                }
             }
         }
     }
@@ -343,6 +371,9 @@ impl Actor {
         if let Some(c) = self.conn.as_ref().filter(|c| c.ready) {
             min(self.keepalive_at);
             if let Some(t) = c.expires_at {
+                min(t);
+            }
+            if let Some(t) = self.telemetry_at {
                 min(t);
             }
         }
@@ -375,7 +406,11 @@ impl Actor {
                 if !self.sessions.contains_key(&id) {
                     self.order.push(id.clone());
                 }
-                self.sessions.insert(id.clone(), new_sess(a));
+                let mut sess = new_sess(a);
+                if self.is_ready() {
+                    sess.attach_from = Some(Instant::now());
+                }
+                self.sessions.insert(id.clone(), sess);
                 if self.is_ready() {
                     self.send_attach(&id);
                 }
@@ -401,6 +436,12 @@ impl Actor {
 
     fn close(&mut self) {
         self.flush_acks(true);
+        if !self.closed
+            && let Some(c) = self.conn.as_ref().filter(|c| c.ready)
+        {
+            crate::telemetry::connection_ended(&c.counts, c.up_since.elapsed(), 1000, c.reconnect);
+            self.flush_telemetry(true);
+        }
         for c in [self.conn.take(), self.next.take()].into_iter().flatten() {
             let _ = c.tx.send(Message::Close(None));
         }
@@ -503,7 +544,11 @@ impl Actor {
                 log::info("wire: the connection stopped answering; reconnecting");
                 if let Some(c) = self.conn.take() {
                     let _ = c.tx.send(Message::Close(None));
+                    // Dead without a close frame.
+                    crate::telemetry::connection_ended(&c.counts, c.up_since.elapsed(), 1006, c.reconnect);
                 }
+                self.lost_at = Some(now);
+                crate::telemetry::error(crate::telemetry::ErrorClass::Timeout, None);
                 self.down_since.get_or_insert(now);
                 self.dial_now();
             }
@@ -525,6 +570,30 @@ impl Actor {
         }
         self.last_wall = (now, SystemTime::now());
         self.flush_acks(false);
+        if self.is_ready() && self.telemetry_at.is_some_and(|t| now >= t) {
+            self.telemetry_at = None;
+            self.flush_telemetry(false);
+        }
+    }
+
+    /// Sends queued telemetry as `telemetry` notifications, within the
+    /// relay's rate; what the rate holds back goes when a token is there.
+    fn flush_telemetry(&mut self, exit: bool) {
+        if !self.is_ready() || !crate::telemetry::enabled() {
+            return;
+        }
+        let mut sent = 0;
+        while crate::telemetry::pending() && (!exit || sent < crate::telemetry::EXIT_FRAMES) {
+            if !self.telemetry_bucket.take(Instant::now()) {
+                if !exit {
+                    self.telemetry_at = Some(self.telemetry_bucket.next_at());
+                }
+                return;
+            }
+            let Some(f) = crate::telemetry::take_frame() else { return };
+            self.write(f);
+            sent += 1;
+        }
     }
 
     fn flush_acks(&mut self, all: bool) {
@@ -601,6 +670,10 @@ impl Actor {
                             up_since: now,
                             last_rx: now,
                             url_attached: in_url,
+                            opened_at: now,
+                            took: Duration::ZERO,
+                            counts: d.counts,
+                            reconnect: self.ever_connected,
                         }) {
                             let _ = stale.tx.send(Message::Close(None));
                         }
@@ -646,6 +719,7 @@ impl Actor {
     }
 
     fn on_dial_error(&mut self, e: Error, in_url: Vec<String>) {
+        crate::telemetry::error(crate::telemetry::ErrorClass::of_dial(&e.code, e.status), None);
         for id in &in_url {
             if let Some(s) = self.sessions.get_mut(id) {
                 s.attaching = false;
@@ -709,6 +783,9 @@ impl Actor {
                     let next = self.next.take().expect("checked");
                     if let Some(old) = self.conn.replace(next) {
                         let _ = old.tx.send(Message::Close(None));
+                        if old.ready {
+                            crate::telemetry::connection_ended(&old.counts, old.up_since.elapsed(), 1000, old.reconnect);
+                        }
                     }
                     let params = v.get("params").cloned().unwrap_or(Value::Null);
                     self.on_ready(params);
@@ -797,6 +874,7 @@ impl Actor {
         let Some(c) = self.conn.as_mut() else { return };
         c.ready = true;
         let took = c.dial_started.elapsed();
+        c.took = took;
         c.expires_at = params
             .get("expiresInMs")
             .and_then(Value::as_u64)
@@ -807,6 +885,13 @@ impl Actor {
         let reconnect = self.ever_connected;
         self.ever_connected = true;
         self.down_since = None;
+        if !reconnect {
+            crate::telemetry::report_previous_crash();
+        }
+        if crate::telemetry::enabled() && crate::telemetry::pending() {
+            // Held while disconnected: send them on the new connection.
+            self.telemetry_at = Some(Instant::now() + crate::telemetry::BATCH_WAIT);
+        }
         self.retry_at = None;
         self.keepalive_at = Instant::now() + KEEPALIVE;
         let connection_id = params.get("connectionId").and_then(Value::as_str).unwrap_or("").to_string();
@@ -884,6 +969,7 @@ impl Actor {
         let Some(s) = self.sessions.get_mut(id) else { return };
         s.attaching = false;
         s.resync = false;
+        let cursor_before = s.cursor.or(s.want.after);
         let v = match result {
             Ok(v) => v,
             Err(e) => {
@@ -919,6 +1005,22 @@ impl Actor {
                 return;
             }
         };
+        if let Some(c) = self.conn.as_ref()
+            && s.reported_on != c.generation
+            && crate::telemetry::enabled()
+        {
+            let reconnect = s.reported_on != 0;
+            s.reported_on = c.generation;
+            let socket_open = s.attach_from.take().filter(|t| *t > c.opened_at).unwrap_or(c.opened_at);
+            crate::telemetry::attached(crate::telemetry::AttachFact {
+                session_id: id.to_string(),
+                socket_open,
+                connect: c.took,
+                reconnect,
+                lost_at: self.lost_at,
+                replayed_events: cursor_before.map(|c| info.session.last_seq.saturating_sub(c)),
+            });
+        }
         let known_epoch = s.epoch.or(s.want.log_epoch);
         s.epoch = Some(info.log_epoch);
         if let (Some(old), Some(c)) = (known_epoch, s.cursor)
@@ -982,6 +1084,15 @@ impl Actor {
         log::info(&format!("wire: connection closed ({code}{})", if reason.is_empty() { String::new() } else { format!(" {reason}") }));
         if c.up_since.elapsed() >= STABLE {
             self.attempt = 0;
+        }
+        if c.ready && !self.closed {
+            self.lost_at = Some(Instant::now());
+        }
+        if c.ready && !self.closed {
+            crate::telemetry::connection_ended(&c.counts, c.up_since.elapsed(), code, c.reconnect);
+        }
+        if !self.closed && !matches!(code, 1000 | 1001 | 1012) {
+            crate::telemetry::error(crate::telemetry::ErrorClass::of_close(code), Some(code));
         }
         if !self.is_ready() {
             self.probe = None;
@@ -1158,6 +1269,8 @@ fn new_sess(want: Attach) -> Sess {
         paging: false,
         unacked: 0,
         first_unacked: None,
+        attach_from: None,
+        reported_on: 0,
     }
 }
 

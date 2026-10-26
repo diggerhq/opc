@@ -275,12 +275,14 @@ impl Follower {
                 Err(e) => Step::AttachFailed(session_id, e),
             },
             WireEvent::Event(e) => {
+                crate::telemetry::print_step(e.turn_id(), e.kind());
                 if let Some(st) = self.states.get_mut(e.session_id()) {
                     st.apply_event(&e);
                 }
                 Step::Event(e)
             }
             WireEvent::Delta(d) => {
+                crate::telemetry::print_step(d.turn_id(), d.kind());
                 if let Some(st) = self.states.get_mut(d.session_id()) {
                     st.apply_delta(&d);
                 }

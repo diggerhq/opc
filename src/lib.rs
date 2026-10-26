@@ -14,6 +14,7 @@ pub mod ids;
 pub mod log;
 pub mod net;
 pub mod render;
+pub mod telemetry;
 pub mod timing;
 pub mod wire;
 pub mod ui;

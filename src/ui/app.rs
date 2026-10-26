@@ -28,6 +28,7 @@ use super::{Seg, Sty, TLine, details, first_line, g, now_ms, plural, term, trunc
 use crate::api::types::{Event, Session};
 use crate::cmd::Ctx;
 use crate::error::{Error, Result};
+use crate::telemetry::{self, Control};
 use crate::wire::{Attach, Wire, WireEvent, WireHandle, WireOptions};
 
 /// Keys pressed this soon after an ask takes the keyboard are ignored.
@@ -87,7 +88,7 @@ enum Bg {
     Me(Value),
     /// The connection's URL, found with `/me`.
     WireUrl(Result<String>),
-    Answered { ask: String, always: Option<String>, result: Result<Value> },
+    Answered { ask: String, always: Option<String>, key: u64, result: Result<Value> },
     Secret { ask: String, name: String, scope: String, result: Result<()> },
     Sessions(Vec<Session>),
     SubResult { name: String, result: Result<Value> },
@@ -95,7 +96,9 @@ enum Bg {
     /// A line for the transcript, or an error message.
     Note(String),
     Fail(String),
-    Unqueued { text: String, result: Result<Value> },
+    Unqueued { text: String, key: u64, result: Result<Value> },
+    /// An interrupt's answer: the telemetry key, and the error to show.
+    Interrupted { key: u64, fail: Option<String> },
     Quiet,
 }
 
@@ -167,6 +170,9 @@ struct App<'a> {
     sessions: Vec<Session>,
     /// SIGTERM or SIGHUP ended the screen: the exit code.
     killed: Option<i32>,
+    /// Client telemetry: turns, controls and draws measured here.
+    tel: telemetry::Screen,
+    render_failed: bool,
 }
 
 fn env(k: &str) -> Option<String> {
@@ -184,6 +190,7 @@ pub async fn session(ctx: &Ctx, start: Start) -> Result<Exit> {
     crate::http::set_starting_notice(None);
     let guard = term::enter().map_err(|e| Error::usage(format!("cannot use the terminal: {e}")))?;
     let mut app = App::new(ctx, &start);
+    telemetry::set_renderer();
     // The first frame, before any network.
     app.draw(true);
     app.timing.first_frame = Some(start.launched.elapsed());
@@ -261,6 +268,8 @@ impl<'a> App<'a> {
             size: size(),
             sessions: Vec::new(),
             killed: None,
+            tel: telemetry::Screen::new(&start.session_id),
+            render_failed: false,
         }
     }
 
@@ -286,6 +295,10 @@ impl<'a> App<'a> {
         if let CreateState::Creating(c) = &self.create {
             let c = c.clone();
             let out = start.message.as_deref().map(|t| self.m.send_local(t, false));
+            if let Some(o) = out {
+                // `opc "…"`: the command line's Enter started the turn.
+                self.tel.entered(o, start.launched);
+            }
             self.start_create(c, out, start.message.clone());
         }
         let mut tick = tokio::time::interval(Duration::from_millis(16));
@@ -430,6 +443,7 @@ impl<'a> App<'a> {
             WireEvent::Attached { .. } => {}
             WireEvent::Event(e) => {
                 if e.session_id() == id || e.session_id().is_empty() {
+                    self.tel_event(&e);
                     self.m.event(&e, now);
                     if self.cache_writes {
                         self.batch.push(e);
@@ -437,7 +451,12 @@ impl<'a> App<'a> {
                     self.show_plans();
                 }
             }
-            WireEvent::Delta(d) => self.m.delta(&d, now),
+            WireEvent::Delta(d) => {
+                if d.session_id() == id || d.session_id().is_empty() {
+                    self.tel.received(d.turn_id(), d.kind(), Instant::now());
+                }
+                self.m.delta(&d, now)
+            }
             WireEvent::EpochReset { session_id, epoch_start_seq } if session_id == id => {
                 self.flush_cache();
                 self.m.epoch_reset(epoch_start_seq);
@@ -454,6 +473,27 @@ impl<'a> App<'a> {
         }
         self.effects();
         Ok(())
+    }
+
+    /// What the journal says about the turn and controls measured here.
+    fn tel_event(&mut self, e: &Event) {
+        let at = Instant::now();
+        self.tel.received(e.turn_id(), e.kind(), at);
+        match e.kind() {
+            "turn.steered" => self.tel.applied(Control::Steer, at),
+            "ask.closed" => self.tel.applied(Control::Answer, at),
+            k @ ("turn.completed" | "turn.failed" | "turn.cancelled") => {
+                let cancelled = k == "turn.cancelled";
+                if cancelled {
+                    self.tel.applied(Control::Interrupt, at);
+                    self.tel.applied(Control::Cancel, at);
+                }
+                if let Some(t) = e.turn_id() {
+                    self.tel.turn_ended(t, cancelled);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn flush_cache(&mut self) {
@@ -515,7 +555,13 @@ impl<'a> App<'a> {
             self.ed.restore(&text);
             return;
         }
+        let idle = !self.m.turn_running() && self.m.queued.is_empty() && self.m.outgoing.is_empty();
         let out = self.m.send_local(&text, queue);
+        if idle {
+            self.tel.entered(out, Instant::now());
+        } else if !queue && self.m.turn_running() {
+            self.tel.control(Control::Steer, Some(out), Instant::now());
+        }
         if let CreateState::Lazy(c) = &self.create {
             let c = c.clone();
             self.start_create(c, Some(out), Some(text));
@@ -610,7 +656,10 @@ impl<'a> App<'a> {
                     self.create = CreateState::Lazy(c);
                 }
                 match out {
-                    Some(o) => self.m.sent(o, Err(&e), now),
+                    Some(o) => {
+                        self.tel.sent(o, Err(()));
+                        self.m.sent(o, Err(&e), now)
+                    }
                     None => self.m.error(&format!("the session was not created: {}", e.message)),
                 }
             }
@@ -620,6 +669,7 @@ impl<'a> App<'a> {
                 if !real.is_empty() && real != self.m.session_id {
                     // The key had already created another session: that one.
                     let old = std::mem::replace(&mut self.m.session_id, real.clone());
+                    self.tel.set_session(&real);
                     if let Some(w) = &self.wire {
                         w.detach(&old);
                         w.attach(Attach { session_id: real.clone(), after: Some(0), tail_turns: None, log_epoch: None });
@@ -634,10 +684,12 @@ impl<'a> App<'a> {
                     self.m.note(&n);
                 }
                 if let Some(o) = out {
-                    match &sent {
-                        Some(r) => self.m.sent(o, r.as_ref(), now),
-                        None => self.m.sent(o, Ok(&v), now),
-                    }
+                    let r = match &sent {
+                        Some(r) => r.as_ref(),
+                        None => Ok(&v),
+                    };
+                    self.tel.sent(o, r.map_err(|_| ()));
+                    self.m.sent(o, r, now);
                 }
                 self.flush_unsent();
             }
@@ -667,10 +719,11 @@ impl<'a> App<'a> {
             params["turnId"] = json!(t);
         }
         self.m.set_fact("interrupting…", now);
+        let key = self.tel.control(Control::Interrupt, None, Instant::now());
         self.futs.push(Box::pin(async move {
             match w.call("sessions.interrupt", params).await {
-                Ok(_) => Bg::Quiet,
-                Err(e) => Bg::Fail(format!("interrupt failed: {}", e.message)),
+                Ok(_) => Bg::Interrupted { key, fail: None },
+                Err(e) => Bg::Interrupted { key, fail: Some(format!("interrupt failed: {}", e.message)) },
             }
         }));
     }
@@ -690,9 +743,13 @@ impl<'a> App<'a> {
 
     fn bg(&mut self, b: Bg) {
         let now = now_ms();
+        if let Bg::Answered { key, result, .. } | Bg::Unqueued { key, result, .. } = &b {
+            self.tel.result(*key, result.is_ok());
+        }
         match b {
             Bg::Created { out, session, sent, notes } => self.created(out, session, sent, notes),
             Bg::Sent { out, result } => {
+                self.tel.sent(out, result.as_ref().map_err(|_| ()));
                 self.m.sent(out, result.as_ref(), now);
                 self.effects();
             }
@@ -701,7 +758,7 @@ impl<'a> App<'a> {
                 self.me = v.pointer("/person/id").and_then(Value::as_str).map(str::to_string);
                 self.m.me = self.me.clone();
             }
-            Bg::Answered { ask, always, result } => match result {
+            Bg::Answered { ask, always, result, .. } => match result {
                 Ok(_) => {
                     if let Some(rule) = always {
                         self.m.print(TLine::new(2, 4).s(format!("{} ", g().ok), Sty::Ok).s(format!("allowed for this session: {rule}"), Sty::Plain));
@@ -750,7 +807,13 @@ impl<'a> App<'a> {
             },
             Bg::Note(t) => self.m.note(&t),
             Bg::Fail(t) => self.m.error(&t),
-            Bg::Unqueued { text, result } => match result {
+            Bg::Interrupted { key, fail } => {
+                self.tel.result(key, fail.is_none());
+                if let Some(t) = fail {
+                    self.m.error(&t);
+                }
+            }
+            Bg::Unqueued { text, result, .. } => match result {
                 Ok(_) => {}
                 Err(e) => {
                     self.m.error(&format!("it had already started: {}", e.message));
@@ -914,7 +977,8 @@ impl<'a> App<'a> {
                     let path = crate::http::session_path(&self.m.session_id, &format!("/turns/{}/cancel", crate::net::encode(&q.turn_id)));
                     let http = self.ctx.http.clone();
                     let text = q.text.clone();
-                    self.futs.push(Box::pin(async move { Bg::Unqueued { text, result: http.post(&path, &json!({}), None).await } }));
+                    let key = self.tel.control(Control::Cancel, None, Instant::now());
+                    self.futs.push(Box::pin(async move { Bg::Unqueued { text, key, result: http.post(&path, &json!({}), None).await } }));
                 }
                 return;
             }
@@ -983,14 +1047,16 @@ impl<'a> App<'a> {
                 self.answered.insert(ask_id.clone());
                 self.ask_focus = false;
                 let Some(w) = self.wire.clone() else { return };
-                self.futs.push(Box::pin(async move { Bg::Answered { ask: ask_id, always, result: w.call("asks.answer", params).await } }));
+                let key = self.tel.control(Control::Answer, None, Instant::now());
+                self.futs.push(Box::pin(async move { Bg::Answered { ask: ask_id, always, key, result: w.call("asks.answer", params).await } }));
             }
             AskOut::Dismiss => {
                 self.answered.insert(ask_id.clone());
                 self.ask_focus = false;
                 let params = json!({"sessionId": self.m.session_id, "askId": ask_id});
                 let Some(w) = self.wire.clone() else { return };
-                self.futs.push(Box::pin(async move { Bg::Answered { ask: ask_id, always: None, result: w.call("asks.dismiss", params).await } }));
+                let key = self.tel.control(Control::Answer, None, Instant::now());
+                self.futs.push(Box::pin(async move { Bg::Answered { ask: ask_id, always: None, key, result: w.call("asks.dismiss", params).await } }));
             }
             AskOut::Web => {
                 let url = self.ctx.url_for(None, &self.m.session_id);
@@ -1448,7 +1514,16 @@ impl<'a> App<'a> {
         let live = self.live(now, w);
         let (rows, cursor) = view::compose(&live, w, h);
         let mut out = std::io::stdout();
-        let _ = self.painter.frame(&mut out, &settled, &rows, cursor, w);
+        let t0 = Instant::now();
+        let r = self.painter.frame(&mut out, &settled, &rows, cursor, w);
+        let t1 = Instant::now();
+        if r.is_err() && !self.render_failed {
+            // Once: a broken terminal fails every frame after.
+            self.render_failed = true;
+            telemetry::error(telemetry::ErrorClass::Render, None);
+        }
+        self.tel.drawn(t1, t1 - t0);
+        telemetry::rendered(t1);
         let t = self.m.term_title();
         if t != self.title_shown {
             term::title(&t);
@@ -1522,6 +1597,7 @@ impl<'a> App<'a> {
         }
         self.flush_cache();
         let _ = self.painter.finish(&mut std::io::stdout(), &lines, w);
+        self.tel.leave();
         if let Some(w) = &self.wire {
             w.close();
         }

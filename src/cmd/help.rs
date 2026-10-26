@@ -49,6 +49,7 @@ const TOPICS: &[(&str, &str)] = &[
     ("exit-codes", include_str!("../../docs/reference/exit-codes.mdx")),
     ("environment", include_str!("../../docs/reference/environment.mdx")),
     ("timing", include_str!("../../docs/reference/timing.mdx")),
+    ("telemetry", include_str!("../../docs/reference/telemetry.mdx")),
     ("troubleshooting", include_str!("../../docs/troubleshooting.mdx")),
 ];
 

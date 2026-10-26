@@ -4,6 +4,7 @@
 pub mod ask;
 pub mod attach;
 pub mod auth;
+pub mod config;
 pub mod doctor;
 pub mod follow;
 pub mod help;
@@ -279,5 +280,6 @@ pub async fn dispatch(cli: Cli, ctx: &mut Ctx) -> Result<i32> {
         Command::Schema(a) => help::schema(a),
         Command::Help(a) => help::help(a),
         Command::Completion(a) => help::completion(a),
+        Command::Config(c) => config::run(ctx, c),
     }
 }

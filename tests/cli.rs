@@ -750,3 +750,140 @@ fn watch_json_errors_are_json() {
     assert_eq!(o.code, 3, "{}", o.stderr);
     assert_eq!(o.err_json()["error"]["code"], "forbidden");
 }
+
+// ---- telemetry ------------------------------------------------------------
+
+/// The `telemetry` notifications opc sent, each checked against the closed
+/// table the relay enforces: names, keys, value types and closed strings.
+fn telemetry_frames(fake: &Fake) -> Vec<Value> {
+    fake.ws_frames()
+        .into_iter()
+        .filter(|f| f.dir == support::Dir::In)
+        .filter_map(|f| {
+            let text = f.text.clone()?;
+            let v: Value = serde_json::from_str(&text).ok()?;
+            if v["method"] != "telemetry" {
+                return None;
+            }
+            assert!(v.get("id").is_none(), "a notification, never a request: {text}");
+            assert!(text.len() <= 16 * 1024, "frame over 16 KiB");
+            Some(v["params"].clone())
+        })
+        .collect()
+}
+
+fn check_telemetry(p: &Value) {
+    let ok_id = |s: &str| !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    assert_eq!(p["v"], 1, "{p}");
+    let c = &p["client"];
+    assert_eq!(c["name"], "opc");
+    assert!(c["version"].as_str().is_some_and(|v| !v.is_empty() && v.len() <= 32));
+    assert!(["darwin", "linux", "windows", "other"].contains(&c["os"].as_str().unwrap()));
+    assert!(["arm64", "x64", "other"].contains(&c["arch"].as_str().unwrap()));
+    assert_eq!(c.as_object().unwrap().len(), 4, "{c}");
+    let events = p["events"].as_array().expect("events");
+    assert!((1..=20).contains(&events.len()));
+    for e in events {
+        let o = e.as_object().unwrap();
+        for k in o.keys() {
+            assert!(["name", "at", "sessionId", "turnId", "data"].contains(&k.as_str()), "key {k} in {e}");
+        }
+        assert!(e["at"].is_u64() || e["at"].is_i64(), "{e}");
+        if let Some(s) = e.get("sessionId") {
+            assert!(s.as_str().is_some_and(|s| s.starts_with("cs_") && ok_id(s)), "{e}");
+        }
+        if let Some(t) = e.get("turnId") {
+            assert!(t.as_str().is_some_and(ok_id), "{e}");
+        }
+        let (keys, strings): (&[&str], &[(&str, &[&str])]) = match e["name"].as_str().unwrap() {
+            "cli.turn" => (&["first_event_ms", "first_output_received_ms", "first_output_ms", "interrupted"], &[]),
+            "cli.attach" => (&["attach_ms", "connect_ms", "reconnect", "gap_ms", "replayed_events"], &[]),
+            "cli.control" => (&["kind", "round_trip_ms", "applied_ms", "ok"], &[("kind", &["steer", "interrupt", "answer", "cancel"])]),
+            "cli.error" => (&["class", "close_code"], &[("class", &["ws_closed", "auth", "ticket", "rate_limited", "protocol", "render", "crash", "timeout", "other"])]),
+            "cli.render" => (&["lag_ms", "draw_ms"], &[]),
+            "cli.connection" => (&["up_ms", "frames", "bytes", "close_code", "reconnect"], &[]),
+            "cli.overflow" => (&["dropped"], &[]),
+            n => panic!("event {n} is not in the catalog"),
+        };
+        for (k, v) in e["data"].as_object().expect("data") {
+            assert!(keys.contains(&k.as_str()), "key {k} in {e}");
+            match v {
+                Value::Number(n) => assert!(n.as_f64().is_some_and(|x| (0.0..=1e10).contains(&x)), "{e}"),
+                Value::Bool(_) => {}
+                Value::String(s) => assert!(strings.iter().any(|(sk, vals)| sk == k && vals.contains(&s.as_str())), "free string {k}={s} in {e}"),
+                _ => panic!("value of {k} in {e}"),
+            }
+        }
+    }
+}
+
+fn telemetry_events(fake: &Fake) -> Vec<Value> {
+    let frames = telemetry_frames(fake);
+    frames.iter().for_each(check_telemetry);
+    frames.iter().flat_map(|p| p["events"].as_array().unwrap().clone()).collect()
+}
+
+#[test]
+fn telemetry_rides_the_wire_without_content() {
+    let fake = Fake::start();
+    let o = run(&fake, &["-p", "--output-format", "json", "reply zebra-quokka-secret"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let r = o.json();
+    let events = telemetry_events(&fake);
+    let names: Vec<&str> = events.iter().filter_map(|e| e["name"].as_str()).collect();
+    let turn = events.iter().find(|e| e["name"] == "cli.turn").unwrap_or_else(|| panic!("no cli.turn in {names:?}"));
+    assert_eq!(turn["turnId"], r["turnId"], "{turn}");
+    assert_eq!(turn["sessionId"], r["sessionId"]);
+    assert!(turn["data"]["first_output_ms"].is_u64(), "{turn}");
+    assert!(names.contains(&"cli.attach"), "{names:?}");
+    // Only the wire: no HTTP request carries telemetry.
+    assert!(fake.requests().iter().all(|q| !q.path.contains("telemetry")));
+    for f in fake.ws_frames().iter().filter(|f| f.dir == support::Dir::In) {
+        let t = f.text.clone().unwrap_or_default();
+        if t.contains("\"telemetry\"") {
+            assert!(!t.contains("zebra") && !t.contains("quokka") && !t.contains("secret"), "content in telemetry: {t}");
+        }
+    }
+    fake.assert_no_panics();
+}
+
+#[test]
+fn telemetry_off_sends_nothing() {
+    for (k, v) in [("OPC_TELEMETRY", "0"), ("OPC_TELEMETRY", "off"), ("DO_NOT_TRACK", "1")] {
+        let fake = Fake::start();
+        let o = fake.opc().env(k, v).args(["-p", "reply hello there"]).output().unwrap();
+        assert_eq!(o.status.code(), Some(0));
+        assert!(telemetry_frames(&fake).is_empty(), "{k}={v} still sent telemetry");
+    }
+}
+
+#[test]
+fn opc_config_telemetry_off_and_on() {
+    let fake = Fake::start();
+    let o = run(&fake, &["config", "telemetry"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.stdout.trim(), "telemetry on (the default)");
+    let o = run(&fake, &["config", "telemetry", "off"]);
+    assert_eq!(o.stdout.trim(), "telemetry off (opc config telemetry off)");
+    let o = run(&fake, &["config", "telemetry", "--json"]);
+    assert_eq!(o.json()["telemetry"], false);
+    assert_eq!(o.json()["source"], "config");
+    let o = run(&fake, &["-p", "reply hello there"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(telemetry_frames(&fake).is_empty(), "sent after opc config telemetry off");
+    // The environment wins over the file.
+    let o = fake.opc().env("OPC_TELEMETRY", "1").args(["config", "telemetry"]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "telemetry on (OPC_TELEMETRY)");
+    let o = run(&fake, &["config", "telemetry", "on"]);
+    assert_eq!(o.stdout.trim(), "telemetry on (the default)");
+}
+
+#[test]
+fn help_says_how_to_turn_telemetry_off() {
+    let fake = Fake::start();
+    let o = run(&fake, &["--help"]);
+    assert!(o.stdout.contains("OPC_TELEMETRY=0") && o.stdout.contains("opc config telemetry off"), "{}", o.stdout);
+    let o = run(&fake, &["help", "telemetry"]);
+    assert_eq!(o.code, 0);
+    assert!(o.stdout.contains("never sends what you type"), "{}", o.stdout);
+}

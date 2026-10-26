@@ -348,6 +348,9 @@ async fn print(ctx: &mut Ctx, args: RunArgs, message: String) -> Result<i32> {
     remember(&sid, Some(&turn.id));
     let url = ctx.config.dashboard_url(&sid);
     crate::timing::get().new_turn(&turn.id);
+    if steered.is_none() {
+        crate::telemetry::print_turn(&sid, &turn.id);
+    }
     // The handle line: even with -q, so a script that gives up knows where to return.
     eprintln!("opc: session {sid} turn {} {url}", turn.id);
     if format == Format::StreamJson {
