@@ -5,6 +5,8 @@ description: "opc login, logout and whoami, and where the credential lives."
 
 `opc` uses the same login as the `opencomputer` CLI. Logging in with either logs in both.
 
+You rarely need to run `opc login` yourself. The first time you run `opc` in a terminal without a credential, it runs the same login, then carries on into the new session.
+
 ## Log in
 
 ```bash
@@ -41,7 +43,13 @@ api           https://app.opencomputer.dev
 computer      ready
 ```
 
-`computer` is `ready`, `asleep` (it starts on first use) or `not set up` (finish setup on the dashboard). `--json` prints the same as an object.
+`computer` is `ready`, `asleep` (it starts on first use) or `not set up`. When it is not set up, every command that needs it fails with exit code `3`:
+
+```
+opc: your organization's computer is not set up. Finish setup: https://app.opencomputer.dev/computer
+```
+
+`--json` prints the same as `GET /me` returns.
 
 ## Log out
 
@@ -64,4 +72,6 @@ A shell alias per organization makes this one word.
 
 ## What reaches the computer
 
-Your credential is sent to OpenComputer's API only, never to your organization's computer. To open a session's connection, `opc` exchanges it for a short-lived ticket, valid for 10 minutes and good only for opening connections as you, and caches it in `~/.opencomputer/opc/tickets.json` (`0600`). See [Tickets](/api/http/tickets).
+Your credential is sent to OpenComputer only, never to your organization's computer. `opc` sends it with each API request, and on the request that opens a session's connection. OpenComputer's edge checks it there and passes on only who you are, so there is no extra round trip and no ticket to fetch. Tickets are for browsers, which cannot send a credential that way. See [Tickets](/api/http/tickets).
+
+An open connection closes when its credential is revoked, within a minute.

@@ -6,16 +6,17 @@ description: "Your organization's Computer, from a terminal. A prompt on screen 
 `opc` is a terminal client for [Computer](https://opencomputer.dev/computer), the agent that works for your organization on its own cloud machine. You type, the agent works on the computer, and its output streams into your terminal as the model writes it.
 
 ```
-$ opc
-▸ new session · opus 5.5 · high · ready in 96 ms
-> fix the flaky test in segment.test.ts and open a PR
+$ opc "fix the flaky test in segment.test.ts and open a PR"
+▸ 7f3a · flaky test in segment.test.ts · opus 5.5 · high · acceptEdits
+you   fix the flaky test in segment.test.ts and open a PR
+      I'll run the test a few times to see how it fails.
 ```
 
 Everything the agent does happens on the computer: a large VM with your organization's repositories checked out, its tools installed and a warm model cache. Your laptop sends text and draws glyphs. Nothing on it is read unless you push it.
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="bolt" href="/quickstart">
-    Install, log in and run your first session in two minutes.
+    Install, then run `opc`. Your first session in two minutes.
   </Card>
   <Card title="Concepts" icon="cube" href="/concepts">
     Computers, sessions, turns and asks, in one page.
@@ -32,11 +33,15 @@ Everything the agent does happens on the computer: a large VM with your organiza
 
 `opc` is a single static binary. It shows a prompt line before the network answers, and you can start typing at once.
 
-- **One round trip to start.** Creating the session and opening the connection happen in parallel. The computer claims a pre-started agent while you type.
+- **One round trip to start.** `opc` names the new session itself, then creates it and opens the connection in parallel. The connection attaches to the session as it opens. The computer claims a pre-started agent while you type.
 - **No batching.** Every fragment of text is forwarded the moment the model emits it, and drawn on the next frame.
 - **Nothing on the laptop to wait for.** No runtime to boot, no framework between a token and your terminal.
 
 Run any command with `--timing` to see where the milliseconds went. See [Timing](/reference/timing).
+
+## For agents and scripts
+
+`opc` works the same without a person at the keyboard. [For agents and scripts](/cli/agents) lists every non-interactive command, the result each one prints and the exit codes. These docs are also published for models as plain text: [/llms.txt](/llms.txt) is an index of the pages, and [/llms-full.txt](/llms-full.txt) is every page in one file.
 
 ## Slack and opc are two views of one session
 

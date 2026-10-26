@@ -15,8 +15,9 @@ A **session** is one conversation with the agent, with its own workspace and his
 
 - A session belongs to the person who started it, and every member of the organization can see it and talk in it. See [Sharing](/cli/sharing).
 - A session is never finished. When nobody uses it for two hours, it **suspends**: the agent process stops and frees its memory. The next message resumes it, with the conversation intact.
-- A session has a title, taken from its first message. You can change it with `/title`.
-- Sessions are identified by an id such as `cs_7f3a9k2m4q8r1t6v`. `opc` shows the first characters after the prefix, such as `7f3a`, and accepts any unique prefix of four or more.
+- A session has a title, taken from its first message. You can change it with `/title` or `opc rename`.
+- A session you are done with can be **archived**: it is left out of `opc ls` and other lists, and nothing else changes. Any new message brings it back.
+- Sessions are identified by an id such as `cs_7f3a9k2m4q8r1t6v`. `opc` shows the first characters after the prefix, such as `7f3a`, and accepts any unique prefix of four or more. Prefixes are for people: scripts should use full ids, which never become ambiguous.
 
 ### Status
 
@@ -42,15 +43,15 @@ Build output and dependency directories, such as `node_modules` and `target`, ar
 
 ## Turns
 
-Everything you send is a **message**, and the agent's work on it is a **turn**. A message you send while a turn runs is handled in one of three ways:
+Everything you send is a **message**, and the agent's work on it is a **turn**. A message you send while a turn runs is delivered in one of three ways:
 
-| Mode | What happens | Default in |
+| Delivery | What happens | Default in |
 | --- | --- | --- |
-| `steer` | Delivered into the running turn at its next step, so the agent adjusts without stopping | `opc`, Slack |
-| `queue` | Waits, and runs as its own turn after the current one | The API |
+| `steer` | Delivered into the running turn at its next step, so the agent adjusts without stopping | The `opc` prompt, Slack |
+| `queue` | Waits, and runs as its own turn after the current one | `opc send`, `opc -p -s`, the API |
 | `interrupt` | Stops the running turn and every queued one, then runs | `Esc` in `opc` |
 
-When nothing is running, all three start a new turn. A turn ends as `completed`, `failed` or `cancelled`. The agent's last message in a completed turn is the session's **result**: what `opc -p` prints.
+On the command line, `--steer`, `--queue` and `--interrupt` choose the delivery. Programs queue by default so that two of them never change each other's turns. When nothing is running, all three start a new turn. A steered message that the turn ends without reading runs as a new turn. A turn ends as `completed`, `failed` or `cancelled`. The agent's last message in a completed turn is the session's **result**: what `opc -p` prints.
 
 ## Asks
 
@@ -64,18 +65,22 @@ Sometimes the agent needs a person before it can go on. It raises an **ask**, an
 
 Any member can answer an ask from any client. The first answer wins, and every other client shows who answered and where. See [Asks](/terminal/asks).
 
+A session with an open ask is not suspended for being idle. If nobody answers within 24 hours, its open asks close as `expired` and the turn ends `cancelled`.
+
 ## Settings
 
-Each session has a **model**, an **effort** level and a **permission mode**. They start from your organization's defaults and can be changed at any time with `/model`, `/effort` and `/mode`. A new model or effort applies from the next turn. A new permission mode applies at once, to the running turn too.
+Each session has a **model**, an **effort** level and a **permission mode**. They start from your organization's defaults and can be changed at any time with `/model`, `/effort` and `/mode`. On the command line they are `--model`, `--effort` and `--mode` (or `--permission-mode`, as in `claude`). A new model or effort applies from the next turn. A new permission mode applies at once, to the running turn too.
 
-| Permission mode | The agent… |
-| --- | --- |
-| `default` | asks before running commands and editing files that need approval |
-| `acceptEdits` | edits files freely and asks before running commands that need approval |
-| `plan` | reads and plans, and changes nothing until you approve the plan |
-| `auto` | runs without asking; a safety check blocks risky actions instead of asking about them |
-| `dontAsk` | never asks, and skips actions that would need approval |
-| `bypassPermissions` | never asks and runs everything. Your organization may not allow it. |
+| Permission mode | The agent… | Can still ask |
+| --- | --- | --- |
+| `default` | asks before running commands and editing files that need approval | Approvals, questions, secret requests |
+| `acceptEdits` | edits files freely and asks before running commands that need approval | Approvals for commands, questions, secret requests |
+| `plan` | reads and plans, and changes nothing until you approve the plan | Approval of the plan, questions, secret requests |
+| `auto` | runs without asking for approval; a safety check blocks risky actions instead of asking about them | Questions, secret requests |
+| `dontAsk` | never asks for approval, and skips actions that would need it | Questions, secret requests |
+| `bypassPermissions` | never asks for approval and runs everything. Your organization may not allow it. | Questions, secret requests |
+
+A permission mode decides approvals only. Questions and secret requests can open in every mode, because only a person can answer them. In a script, `opc -p --on-ask` decides what happens when one opens.
 
 Your organization sets which modes, models and effort levels are allowed. A session lists them in its [capabilities](/api/reference/objects#capabilities).
 

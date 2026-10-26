@@ -1,9 +1,11 @@
 ---
 title: "Quickstart"
-description: "Install opc, log in and run your first session."
+description: "Install opc and run your first session."
 ---
 
 You need an OpenComputer organization with Computer set up. If your team uses Computer in Slack, you have one.
+
+Two steps: install, then run `opc`.
 
 <Steps>
   <Step title="Install">
@@ -11,25 +13,27 @@ You need an OpenComputer organization with Computer set up. If your team uses Co
     curl -fsSL https://opencomputer.dev/opc/install.sh | sh
     ```
 
-    Or with Homebrew: `brew install diggerhq/tap/opc`. See [Install](/install) for other platforms.
+    Or with Homebrew: `brew install diggerhq/tap/opc`. See [Install](/install) for other platforms. If `~/.local/bin` is not on your `PATH`, the script prints the line to add. It ends with `Run opc to start.`
   </Step>
-  <Step title="Log in">
+  <Step title="Run opc">
     ```bash
-    opc login
+    opc
     ```
 
-    `opc` prints a short code and opens your browser. Confirm the code there, and the terminal says who you are:
+    The first time, `opc` logs you in before it starts the session. It prints a short code and opens your browser. Confirm the code there, and the terminal says who you are and carries on:
 
     ```
+      Open https://app.opencomputer.dev/device and enter the code
+          WDJB-MJHT
+      Waiting for confirmation… (Ctrl+C to cancel)
     ✓ Logged in as Igor Zalutski (igor@acme.dev) · acme
       Credential "igor-mbp" saved to ~/.opencomputer/config.json
     ```
 
-    If you already use the `opencomputer` CLI, you are logged in already: both read the same file.
-  </Step>
-  <Step title="Start a session">
-    ```bash
-    opc
+    If you already use the `opencomputer` CLI, you are logged in already: both read the same file. `opc login` logs in without starting a session. If your organization's computer is not set up yet, `opc` says where to finish setup and exits:
+
+    ```
+    opc: your organization's computer is not set up. Finish setup: https://app.opencomputer.dev/computer
     ```
 
     The prompt line appears at once. Type a task and press Enter:
@@ -41,7 +45,7 @@ You need an OpenComputer organization with Computer set up. If your team uses Co
     Text streams in as the agent writes it. Tool calls fold into one line per run of steps. Press `Ctrl+O` for the full detail, and `q` to come back.
   </Step>
   <Step title="Leave and come back">
-    Press `Ctrl+D` on an empty prompt, or `Ctrl+C` twice. The session keeps running on the computer:
+    Press `Ctrl+D` on an empty prompt, or `Ctrl+C` twice while the agent is idle. The session keeps running on the computer:
 
     ```
     [detached from "repositories changed this week" · idle · opc a - to return]

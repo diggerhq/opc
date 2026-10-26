@@ -11,23 +11,30 @@ description: "Every key opc responds to in a session."
 | --- | --- | --- |
 | `Enter` | The agent is idle | Sends the message as a new turn |
 | `Enter` | A turn is running | Sends it into the running turn (`steer`): the agent reads it at its next step |
-| `Alt+Enter` or `Ctrl+J` | Any time | Inserts a new line |
-| `\` then `Enter` | Any time | Inserts a new line, for terminals that do not pass `Alt+Enter` |
+| `Shift+Enter` or `Ctrl+Enter` | Any time | Inserts a new line, in terminals that report these keys |
+| `Alt+Enter` or `Ctrl+J` | Any time | Inserts a new line, in every terminal |
+| `\` then `Enter` | Any time | Inserts a new line |
 | `Ctrl+V` or your terminal's paste | Any time | Pastes. Pasted line breaks never send. A paste over 1,000 lines is collapsed to `[pasted 1,204 lines]` in the prompt and sent in full. |
 
-To queue a message as its own turn after the running one, instead of steering, start it with `/queue`. See [Slash commands](/terminal/slash-commands).
+`opc` turns on the kitty keyboard protocol where the terminal supports it, so that it can tell `Shift+Enter` and `Ctrl+Enter` from `Enter`.
 
-Your message is drawn in the transcript the moment you press `Enter`, marked `sending`. The mark disappears when the computer has accepted it. If the connection is down, the message waits and is sent when it comes back, once: every message carries a key that makes a resend harmless.
+To queue a message as its own turn after the running one, instead of steering, start it with `/queue`. It waits above the prompt as a dim `queued` line. `↑` on an empty prompt line takes the last queued message back into the prompt for editing, and it no longer runs. See [Slash commands](/terminal/slash-commands).
+
+Your message is drawn in the transcript the moment you press `Enter`, marked `sending`. The mark disappears when the computer has accepted it. A message sent into a running turn is marked `↳ read`, dimmed, once the agent has taken it into the turn. If the turn ends before the agent reads it, it runs as a new turn.
+
+If the connection is down, the message is marked `pending` and sent when the connection comes back, once: every message carries a key that makes a resend harmless. `Esc` takes pending messages back into the prompt line. A pending message meant to steer a turn that has ended by the time it is sent starts a new turn.
 
 ## Stopping and leaving
 
-| Key | Does |
-| --- | --- |
-| `Esc` | Interrupts the running turn and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
-| `Ctrl+C` | Clears the prompt line. On an empty prompt line, shows `press Ctrl+C again to detach`. |
-| `Ctrl+C` twice | Detaches. The session keeps running. |
-| `Ctrl+D` on an empty prompt line | Detaches |
-| `Ctrl+Z` | Suspends `opc` in your shell, as for any program. `fg` returns. The session is not affected. |
+| Key | When | Does |
+| --- | --- | --- |
+| `Esc` | Something is open | Closes the innermost open thing: the completion menu, the `Ctrl+R` search, a chooser, the picker or the details view |
+| `Esc` | Nothing is open | Interrupts the running turn and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
+| `Ctrl+C` | The prompt line has text | Clears it |
+| `Ctrl+C` | A turn is running and the prompt line is empty | Interrupts the turn, as `Esc` does |
+| `Ctrl+C` | The agent is idle and the prompt line is empty | Shows `press Ctrl+C again to detach`. A second `Ctrl+C` detaches. The session keeps running. |
+| `Ctrl+D` | The prompt line is empty | Detaches |
+| `Ctrl+Z` | Any time | Suspends `opc` in your shell, as for any program. `fg` returns. The session is not affected. |
 
 Detaching never stops the agent. To stop it, press `Esc` first.
 
@@ -37,7 +44,7 @@ Detaching never stops the agent. To stop it, press `Esc` first.
 | --- | --- |
 | `←` `→`, `Ctrl+A`, `Ctrl+E`, `Alt+B`, `Alt+F` | Move in the line, as in your shell |
 | `Ctrl+W`, `Ctrl+U`, `Ctrl+K` | Delete a word back, to the start, to the end |
-| `↑` `↓` | Previous and next message from your history. On a multi-line message, move between lines first. |
+| `↑` `↓` | Previous and next message from your history. On a multi-line message, move between lines first. On an empty prompt line with a message queued, `↑` takes that message back first. |
 | `Ctrl+R` | Search your history |
 | `Ctrl+X Ctrl+E` | Edit the message in `$VISUAL` or `$EDITOR` |
 | `Tab` | Completes slash commands, their arguments and file names in [`/push`](/terminal/slash-commands#push) |
@@ -55,4 +62,12 @@ History is kept per machine, in `~/.opencomputer/opc/history`, across sessions. 
 
 ## When an ask is open
 
-An open ask takes the keyboard until it is answered. Its keys are on the ask itself and on [Asks](/terminal/asks). `Tab` moves to the prompt line and back, so you can write a message while an ask is open. It is held, and reaches the agent together with the answer. `Esc` still interrupts the turn, which also closes the ask.
+An ask never takes keys you meant for the prompt. It takes the keyboard only when the prompt line is empty and you have pressed no key for 500 ms. Otherwise it waits above the prompt as `◆ ask open · Tab to answer`, and the status line says `waiting for you`. Keys pressed in the first 300 ms after an ask takes the keyboard are ignored, so a keystroke already on its way cannot answer it.
+
+| Key | On an ask | Does |
+| --- | --- | --- |
+| `Tab` | Any | Moves between the ask and the prompt line. A message you write while an ask is open is held, and reaches the agent together with the answer. |
+| `Esc` | Any | Returns to the prompt line. It does not interrupt the turn and does not dismiss the ask. |
+| `Ctrl+D` | A question | Dismisses it. The agent is told nobody answered and decides how to go on. |
+
+The ask's own keys are on the ask itself and on [Asks](/terminal/asks). To interrupt the turn while an ask is open, press `Esc` again from the prompt line, which also closes the ask.

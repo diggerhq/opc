@@ -9,16 +9,16 @@ description: "What --timing measures, and the numbers to expect."
 $ opc --timing
 …
 launch
-  process start → config read             3 ms
-  session create (API)                   84 ms   ┐ in parallel
-  connection open (TLS + upgrade)       171 ms   ┘
-  attach → session state                 82 ms
-  launch → ready                        257 ms
+  process start → prompt                  4 ms
+  session create (API)                   92 ms   ┐ in parallel
+  connection open + attach              104 ms   ┘
+  launch → ready                        108 ms
   agent start                          warm · 11 ms
 last turn (tn_4m8q)
-  enter → accepted                       41 ms
-  enter → first token                  1.36 s
-    of which model                     1.31 s   (reported by the computer)
+  enter → accepted                       84 ms
+    ours 1 ms · server 3 ms · network 80 ms
+  enter → first token                  1.39 s
+    ours 1 ms · server 4 ms · network 80 ms · model 1.30 s
   first token → last token             8.20 s
   render, worst frame                    2 ms
 connection
@@ -28,27 +28,51 @@ connection
 
 | Measurement | From | To |
 | --- | --- | --- |
-| launch → ready | `opc` starting | The session's state received. You could type long before this. |
+| process start → prompt | `opc` starting | The prompt line on screen, ready for typing. Nothing on the network is waited for. |
 | session create | The request leaving | Its response |
-| connection open | Starting the TLS handshake | The connection ready to use |
-| agent start | The computer starting the agent | The agent ready. `warm` means a pre-started agent was ready. `cold` adds about a second; `resumed` adds several. |
-| enter → accepted | `Enter` | The computer's acknowledgement |
+| connection open + attach | Starting the TLS handshake | The connection open and attached to the session. The attach is part of opening the connection, not a request of its own. |
+| launch → ready | `opc` starting | The session attached and live. You could type long before this. |
+| agent start | The computer starting the agent | The agent ready. `warm` means a pre-started agent was ready. `cold` adds about 0.8 s; `resumed` adds several seconds. |
+| enter → accepted | `Enter` | The computer's acknowledgement that it recorded the message. Never less than one round trip. |
 | enter → first token | `Enter` | The first character of the reply on screen |
-| of which model | The computer sending the request to the model | The model's first token, as the computer measured it |
+| first token → last token | The first character of the reply | The last |
 | render, worst frame | A screen update starting | It being written to the terminal |
+
+Under each of the turn's times, `opc` splits it into four parts:
+
+| Part | Is |
+| --- | --- |
+| `ours` | Time spent in `opc` on your machine |
+| `server` | Time spent in OpenComputer's edge, relay and computer, as they report it |
+| `network` | The rest: time on the wire between your machine and the computer |
+| `model` | The model's time to its first token, as the computer measured it |
 
 ## What to expect
 
-On a warm computer, with a pre-started agent:
+On a warm computer, with a pre-started agent. A round trip (RTT) is the time to the computer and back; the edge is OpenComputer's nearest point of presence. Opening a connection costs one or two round trips to the nearby edge for TCP and TLS, then one full round trip for the upgrade. The edge and the relay each add at most 2 ms.
 
-| | Same region | Across an ocean |
-| --- | --- | --- |
-| launch → ready | about 100 ms | about 300 ms |
-| enter → first token | the model's time + about one round trip | the model's time + about one round trip |
-| a token → on screen | one frame, 16 ms at most | one frame |
+| Path | Target |
+| --- | --- |
+| launch → prompt interactive | ≤ 10 ms (local; no network wait) |
+| launch → attached and live (new session) | 1 full RTT + 2 edge RTT + 10 ms: about 40 ms in the same region, about 110 ms from London to US East |
+| attach to an existing session → first paint | 0 ms from the local cache; otherwise ≤ 1 RTT + 10 ms, whatever the session's length |
+| `Enter` → accepted | 1 RTT + ≤ 5 ms ours |
+| `Enter` → first token, our share | 1 RTT + ≤ 5 ms. The model's time to first token is extra. |
+| `Esc` → turn cancelled | 1 RTT + ≤ 300 ms for the agent to stop |
+| reconnect, network back → caught up | the connection's open time + 1 RTT |
+| resume, suspended → running | p50 ≤ 7.4 s today, started when you pick the session |
+| cold start, no pre-started agent | + 0.8 s |
+| `opc ls` | 0 ms from the cache, refreshed in 1 RTT |
+| `opc -p`, overhead over the turn | ≤ 1 RTT + 20 ms |
+| `opc shell` → remote prompt | ≤ 1 RTT + 20 ms |
+| keystroke in a shell → echo | 1 RTT + < 1 ms ours |
+| reading the session over HTTP, behind live | p95 ≤ 150 ms |
+| `opc push`, `opc pull` | ≥ 50 MB/s in the same region, compressed with zstd |
+
+We hold `opc` to these: the median must meet the target and the 95th percentile must be within 1.5 times it, measured from London and US East over 200 warm runs. Times through a proxy are not part of the targets.
 
 Slower than this is worth knowing about. The usual causes are a computer that was asleep, an agent started cold because none was pre-started, a session being resumed, or a proxy in the way. `opc doctor` shows which.
 
 ## Where the numbers come from
 
-Every time is measured on your machine with a monotonic clock, except `of which model` and `agent start`, which the computer measures and sends with the events of the turn. The two clocks are never compared with each other.
+Every time is measured on your machine with a monotonic clock, except `server`, `model` and `agent start`. The servers report their own time with each response, in a `Server-Timing` header over HTTP and a `timing` field over the WebSocket, and the computer sends `model` and `agent start` with the events of the turn. `network` is what remains. The two clocks are never compared with each other: only durations cross between them.

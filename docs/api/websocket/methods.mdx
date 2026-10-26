@@ -3,7 +3,9 @@ title: "Methods"
 description: "Every WebSocket method, its parameters, its result and its notifications."
 ---
 
-Each method does what the HTTP route of the same name does, with the same parameters and the same result object. The difference is `sessions.attach`, which only the WebSocket has. Every session method takes `sessionId`.
+A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the same resource and verb. Its params are that route's path parameters, query and body, flattened into one object, and its result is the route's response. Every session method takes `sessionId`. The exceptions are `sessions.attach` and `sessions.detach`, which only the WebSocket has, and the terminal methods.
+
+`turns.send` is the create verb for turns. It is named `send` because a message may join a running turn rather than create one.
 
 | Method | HTTP equivalent |
 | --- | --- |
@@ -11,17 +13,22 @@ Each method does what the HTTP route of the same name does, with the same parame
 | [`sessions.detach`](#detach) | none |
 | `sessions.get` | [`GET /sessions/{id}`](/api/http/sessions#get-a-session) |
 | `sessions.update` | [`PATCH /sessions/{id}`](/api/http/sessions#update-a-session) |
-| `sessions.interrupt`, `sessions.compact`, `sessions.suspend`, `sessions.resume` | [Control](/api/http/control) |
+| [`sessions.interrupt`](#interrupt), `sessions.compact`, `sessions.suspend`, `sessions.resume` | [Control](/api/http/control) |
 | [`turns.send`](#send) | [`POST /sessions/{id}/turns`](/api/http/turns#send-a-message) |
+| `turns.get` | [`GET /sessions/{id}/turns/{turnId}`](/api/http/turns#get-a-turn), with `turnId` |
+| `asks.list`, `asks.get` | [`GET /sessions/{id}/asks`](/api/http/asks#list-asks) and [`GET /sessions/{id}/asks/{askId}`](/api/http/asks#get-an-ask), with `askId` |
 | `asks.answer`, `asks.dismiss` | [Asks](/api/http/asks), with `askId` |
-| [`pty.open`, `pty.resize`, `pty.close`, `pty.eof`](/api/websocket/pty) | none |
+| `events.list` | [`GET /sessions/{id}/events`](/api/http/events) |
+| [`terminals.open`, `terminals.resize`, `terminals.eof`, `terminals.close`](/api/websocket/terminals) | none |
 | `ping` | none |
 
-Creating and listing sessions, files, secrets and tickets are HTTP only. They are not on the path of anything a person waits for keystroke by keystroke.
+Everything not in this table is HTTP only, such as creating and listing sessions, files, secrets and tickets. With the methods above, a browser holding only a ticket can read everything it was shown.
+
+The result of every write carries `seq`, the `seq` of the last event the write caused. To read it back over HTTP, pass it as `minSeq`. See [Client libraries](/api/reference/clients#writing-your-own).
 
 ## Attach
 
-Starts sending a session's events to this connection.
+Starts sending a session's events to this connection. A session can also be attached in the [connection URL](/api/websocket/connect#attach-in-the-upgrade), which saves the round trip.
 
 ```json
 { "jsonrpc": "2.0", "id": 1, "method": "sessions.attach", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "after": 1180, "deltas": true } }
@@ -31,29 +38,51 @@ Starts sending a session's events to this connection.
 | --- | --- |
 | `sessionId` | |
 | `after` | Optional. Also send recorded events with a `seq` greater than this, before live ones. Omit to get only what happens from now. |
+| `tailTurns` | Optional, without `after`. Also send the full recorded events of the last `tailTurns` turns, before live ones, and summarize the turns before them in `earlierTurns`. |
 | `deltas` | Optional, default `false`. Also send [deltas](/api/reference/events#text): text as it is written, and tool output as it is produced. |
+| `resume` | Optional, default `false`. `true` resumes the session if it is suspended, in the same request. |
+| `readOnly` | Optional, default `false`. `true` refuses every write to this session on this connection with `403 forbidden` and `reason: "read_only"`. `opc a --read-only` uses it. |
 
 The result is the session, current as of the moment you attached:
 
 ```json
-{ "jsonrpc": "2.0", "id": 1, "result": { "session": { "id": "cs_7f3a9k2m4q8r1t6v", "lastSeq": 1184, "…": "…" } } }
+{
+  "jsonrpc": "2.0", "id": 1,
+  "result": {
+    "session": { "id": "cs_7f3a9k2m4q8r1t6v", "lastSeq": 1184, "logEpoch": 1, "epochStartSeq": 1, "…": "…" },
+    "logEpoch": 1,
+    "epochStartSeq": 1,
+    "capabilities": { "…": "…" },
+    "earlierTurns": null,
+    "timing": { "serverUs": 840 }
+  }
+}
 ```
 
-Then `event` notifications follow, in `seq` order, with no gap and no repeat:
+| Field | Meaning |
+| --- | --- |
+| `session` | The [Session](/api/reference/objects#session) |
+| `logEpoch`, `epochStartSeq` | The session's, repeated for the [epoch check](/api/reference/clients#writing-your-own) |
+| `capabilities` | The session's [Capabilities](/api/reference/objects#capabilities) |
+| `earlierTurns` | With `tailTurns`: the [Turns](/api/reference/objects#turn) before the last `tailTurns`, newest first, at most 50. Else `null`. |
+| `timing.serverUs` | Time the server spent on the attach, in microseconds |
 
-1. With `after`: every recorded event from `after + 1` to the session's `lastSeq`
-2. With `deltas` and a block being written right now: one delta holding that block's text so far
+Then the session's events follow, in `seq` order, with no gap and no repeat:
+
+1. With `after`: every recorded event from `after + 1` to the session's `lastSeq`. With `tailTurns`: every recorded event of the last `tailTurns` turns.
+2. With `deltas`: for each block being written right now, one delta holding its text so far; for each tool call still running, one delta holding its last 4 KiB of output
 3. Live events, as they happen
 
-So a client that sets `after` to its last applied `seq` misses nothing, and one that starts from the `session` in the result and omits `after` misses nothing either.
+Recorded events arrive as `event` notifications, deltas as `delta` notifications. So a client that sets `after` to its last applied `seq` misses nothing, and one that starts from the `session` in the result and omits `after` misses nothing either. A long session paints at once with `tailTurns`, whatever its length.
 
-Attaching to a suspended session does not resume it: watching costs nothing. Send a message, or call `sessions.resume`, to start it. `opc` calls `sessions.resume` in the background as soon as it attaches to a suspended session.
+Attaching to a suspended session does not resume it unless you pass `resume`: watching costs nothing. Only `opc`'s interactive screen resumes a session when it attaches. `opc watch`, `opc wait` and `opc log` never do.
 
 Attaching again to a session already attached replaces the earlier attachment's options.
 
 | Error `data.code` | When |
 | --- | --- |
 | `session_not_found` | It does not exist, or you cannot see it |
+| `cursor_ahead` | `after` is greater than the session's `lastSeq`. `data.session` is the session now. |
 | `too_far_behind` | `after` is more than 10,000 events back. Read them over [HTTP](/api/http/events) first. |
 | `too_many_attached` | This connection already has 20 sessions attached |
 
@@ -61,22 +90,47 @@ Attaching again to a session already attached replaces the earlier attachment's 
 
 Stops sending a session's events. `{ "sessionId" }`. The result is `{}`. Events already sent may still arrive after it.
 
+## Ack
+
+`sessions.ack` is a notification you send, with no `id` and no response:
+
+```json
+{ "jsonrpc": "2.0", "method": "sessions.ack", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "seq": 1250 } }
+```
+
+`seq` is the last event you applied. Send it every 64 events or every 250 ms, whichever comes first, while events arrive. When a connection acks, the server measures how far behind it is from what it sent and what you acked, which is exact. Without acks it estimates from its socket buffer. Acks are optional. See [Flow control](/api/websocket/flow-control).
+
 ## Send
 
-`{ sessionId, input, mode?, idempotencyKey? }`. The result is what [`POST /turns`](/api/http/turns#send-a-message) returns: `{ turn, delivery, duplicate }`.
+`{ sessionId, input, mode?, idempotencyKey? }`. The result is what [`POST /turns`](/api/http/turns#send-a-message) returns, `{ turn, delivery, duplicate, seq }`, with `timing: { serverUs }` added.
 
-`idempotencyKey` does what the `Idempotency-Key` header does over HTTP. Send one with every message: after a reconnect you cannot know whether a request sent just before the drop arrived, and resending with the same key is safe. Keys are shared between HTTP and WebSocket. See [Idempotency](/api/reference/idempotency).
+`idempotencyKey` does what the `Idempotency-Key` header does over HTTP. Send one with every message: after a reconnect you cannot know whether a request sent just before the drop arrived, and resending with the same key is safe. A method and its HTTP route share keys. See [Idempotency](/api/reference/idempotency).
 
 `mode` defaults to `queue`, as over HTTP.
+
+## Interrupt
+
+`{ sessionId, turnId?, idempotencyKey? }`. With `turnId`, it interrupts only if that turn is still running or queued; otherwise it succeeds and changes nothing. So a client interrupts the turn it saw, never one that started since. The result is what [`POST /interrupt`](/api/http/control#interrupt) returns.
 
 ## Notifications
 
 | Method | Params | Sent |
 | --- | --- | --- |
-| `ready` | `connectionId`, `server`, `limits`, `expiresAt` | Once, first |
-| `event` | An [event](/api/reference/events) | For each event of each attached session |
-| `session.detached` | `sessionId`, `reason`: `access_lost` | When you can no longer see an attached session, such as after leaving its Slack channel |
-| `pty.exit` | `ptyId`, `exitCode`, `signal` | When a [terminal](/api/websocket/pty) ends |
+| `ready` | `connectionId`, `server`, `protocol`, `limits`, `expiresAt`, `expiresInMs` | Once, first. See [Connecting](/api/websocket/connect#open). |
+| `sessions.attached` | `sessionId`, `error`, and the fields of the attach result | For each session attached in the [connection URL](/api/websocket/connect#attach-in-the-upgrade), right after `ready` |
+| `event` | A recorded [event](/api/reference/events) | For each event of each attached session |
+| `delta` | A [delta](/api/reference/events#shape) | For each delta of each session attached with `deltas` |
+| `session.detached` | `sessionId`, `reason` | When the server stops sending a session's events. See below. |
+| `terminal.exited` | `terminalId`, `exitCode`, `signal` | When a [terminal](/api/websocket/terminals#terminalexited) ends |
+
+A delta for a `blockId` or `callId` whose completed event you already applied is stale. Ignore it.
+
+`session.detached` has one of these `reason`s. The connection stays open, and other sessions are not affected.
+
+| `reason` | Means | Do |
+| --- | --- | --- |
+| `access_lost` | You can no longer see the session, such as after leaving its Slack channel | Stop showing it |
+| `too_far_behind` | You fell more than 8 MiB or 10,000 events behind on this session | Attach again with `after` set to your last applied `seq`. See [Flow control](/api/websocket/flow-control). |
 
 ## Errors
 
@@ -85,7 +139,7 @@ Errors follow JSON-RPC 2.0:
 ```json
 {
   "jsonrpc": "2.0", "id": 7,
-  "error": { "code": -32000, "message": "Ask already answered", "data": { "code": "ask_closed", "status": 409, "ask": { "…": "…" } } }
+  "error": { "code": -32000, "message": "Ask already answered", "data": { "code": "ask_closed", "status": 409, "message": "This ask was already answered.", "requestId": "req_8k2m4q7x1v9c", "retryable": false, "ask": { "…": "…" } } }
 }
 ```
 
@@ -94,7 +148,7 @@ Errors follow JSON-RPC 2.0:
 | `-32700` | The frame is not JSON |
 | `-32600` | Not a valid JSON-RPC request |
 | `-32601` | Unknown method |
-| `-32602` | Invalid params. `data.field` names the param. |
-| `-32000` | Any API error. `data.code` and `data.status` are exactly what the HTTP route would return, with the same extra fields. |
+| `-32602` | Invalid params. `data` is always `{ "code": "invalid_request", "status": 400, "field": "…" }`, with `field` the dotted path of the param. Unknown params are invalid too. |
+| `-32000` | Any API error. `data` is exactly what the HTTP route would return as `error`, with `status` added. |
 
 Branch on `data.code`, which is the same over HTTP and WebSocket. See [Errors](/api/reference/errors).

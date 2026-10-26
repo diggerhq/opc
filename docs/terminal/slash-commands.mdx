@@ -11,17 +11,20 @@ A line that starts with `/` is a command to `opc`, not a message to the agent. `
 | `/model [name]` | Shows or sets the model |
 | `/effort [level]` | Shows or sets the effort level |
 | `/mode [name]` | Shows or sets the permission mode |
-| `/title <words>` | Renames the session |
+| `/title <words>` | Renames the session. `/rename` is an alias. |
 | `/queue <message>` | Sends a message as its own turn, after the running one |
 | `/interrupt` | Same as `Esc`. `/stop` is an alias. |
-| `/compact [instructions]` | Summarizes the conversation to free context |
+| `/compact [instructions]` | Summarizes the conversation to free context, after the running turn if there is one |
+| `/allowed` | Lists the rules allowed for this session with `[a]`, and revokes them |
 | `/push <dir> [--to <name>]` | Copies a local directory into the workspace |
 | `/pull <path> [dir]` | Copies a directory from the workspace to your machine |
+| `/diff [--stat]` | Shows the git diff of every repository in the workspace, through `$PAGER` |
 | `/shell` | Opens a shell in the workspace; `exit` returns here |
 | `/sessions` | Opens the session picker |
 | `/new` | Detaches and starts a new session |
 | `/detach` | Detaches. Same as `Ctrl+D`. |
 | `/suspend` | Suspends the session now, instead of after two idle hours |
+| `/archive` | Archives the session and detaches. Any new message un-archives it. |
 | `/web` | Opens the session on the dashboard |
 | `/copy [code]` | Copies the agent's last message, as markdown, to your clipboard. `/copy code` copies its last code block. Works over SSH and in tmux. |
 | `/details` | Opens the details view. Same as `Ctrl+O`. |
@@ -57,9 +60,24 @@ Same rules as [`opc push`](/cli/files#push). `Tab` completes local paths.
 
 Same rules as [`opc pull`](/cli/files#pull). Relative local paths are relative to the directory you started `opc` in.
 
+## /allowed
+
+Pressing `a` on an approval allows a rule for the rest of the session, such as `Bash(terraform plan *)`. `/allowed` lists the session's rules, and `Enter` revokes the one selected:
+
+```
+> /allowed
+  allowed for this session
+  ❯ Bash(terraform plan *)
+    Bash(npm test *)
+    enter revoke · esc close
+  ✓ revoked: Bash(terraform plan *)
+```
+
+The rules belong to the session, so every client sees the same list. A revoked rule asks again from the next call.
+
 ## /compact
 
-Compacting replaces the conversation so far with a summary, so a long session has room to keep working. Instructions focus the summary: `/compact keep the failing test names`. The session must be idle. The transcript on your screen is not changed; a line marks where the summary begins.
+Compacting replaces the conversation so far with a summary, so a long session has room to keep working. Instructions focus the summary: `/compact keep the failing test names`. If a turn is running, compaction runs after it ends. The transcript on your screen is not changed; a line marks where the summary begins.
 
 ## Text that starts with a slash
 

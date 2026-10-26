@@ -15,8 +15,8 @@ description: "Environment variables, the configuration file and what opc keeps o
 | `NO_COLOR` | Any value turns colors off |
 | `OPC_NOTIFY` | `0` turns off [notifications](/terminal/session-screen#when-you-look-away) |
 | `VISUAL`, `EDITOR` | The editor for `Ctrl+X Ctrl+E` |
-| `BROWSER` | The program `opc login` and `--web` open links with |
-| `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes, including the session connection |
+| `BROWSER` | The program `opc login` and `opc open` open links with |
+| `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes: API requests and the session's WebSocket connection, both tunnelled with `CONNECT`. `NO_PROXY` lists hosts to reach directly. The [timing targets](/reference/timing#what-to-expect) do not include a proxy. |
 
 `OPENCOMPUTER_*` variables are shared with the `opencomputer` CLI.
 
@@ -40,9 +40,12 @@ Under `~/.opencomputer/opc/`, or `OPC_STATE_DIR`:
 
 | File | Holds | Safe to delete |
 | --- | --- | --- |
-| `state.json` | The last session you attached to, for `opc a -`, `push` and `pull` | Yes |
-| `sessions.json` | The session list from the last `opc ls` or picker, so the picker and completions open instantly | Yes |
+| `state.json` | The last session created or attached on this machine, for `opc a -`, `push`, `pull`, `shell` and `secret` | Yes |
+| `sessions.json` | The session list from the last `opc ls` or picker, so `opc ls`, the picker and completions open instantly | Yes |
+| `sessions/<id>.jsonl` | The recorded events of each session you opened on this machine, `0600`, so attaching draws at once and fetches only what is new | Yes |
+| `tls-cache` | TLS session resumption data, so a new connection skips part of its handshake, `0600` | Yes |
 | `history` | What you typed at the prompt line, for `↑` and `Ctrl+R`. At most 10,000 entries. | Yes |
-| `tickets.json` | Connection tickets, valid 10 minutes, `0600` | Yes |
 
-`opc` never writes anywhere else, never stores what the agent wrote, and sends no analytics. The server records which client a request came from, such as `opc/0.1.0`, as every API does.
+Several `opc` processes can run at once: they share these files safely, with file locks. Deleting any of them only makes the next launch fetch again.
+
+`opc` never writes anywhere else and sends no analytics. What the agent wrote is kept on your machine only in the session cache under `sessions/`. The server records which client a request came from, such as `opc/0.1.0`, as every API does.

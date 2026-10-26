@@ -27,21 +27,38 @@ for await (const event of computer.sessions.stream(session.id, { deltas: true })
 It is what `opc` uses, and it does the work described below for you:
 
 - Every HTTP route and WebSocket method, typed, with the API's names
-- `sessions.stream(id, { after, deltas })`: an async iterator of events that gets tickets, connects, attaches, reconnects before `4001` and after drops, and skips repeats by `seq`
-- One shared connection for every stream in a process
-- An idempotency key on every write, and retries for errors that can be retried
-- `ComputerError` with `code`, `status` and `requestId`
+- `sessions.stream(id, { after, deltas, tailTurns })`: an async iterator of events and deltas that connects with the key on the upgrade, attaches in the same request, reconnects after drops and before `4001`, skips repeats by `seq`, and applies the `logEpoch` rule below
+- One shared connection for every stream in a process, with [acks](/api/websocket/methods#ack) sent for you
+- An idempotency key on every write, and retries for errors that are `retryable`
+- `minSeq` on an HTTP read that follows a WebSocket write, so the read includes it
+- Catching up over HTTP after `4008` before attaching again
+- `ComputerError` with `code`, `status`, `retryable` and `requestId`
 
-In a browser, construct it with `{ ticket: () => fetchTicketFromYourServer() }` instead of a key. It then uses the WebSocket only. See [Giving tickets to a browser](/api/http/tickets#giving-tickets-to-a-browser).
+### In a browser
+
+In a browser, construct it with `{ ticket: () => fetchTicketFromYourServer() }` instead of a key. See [Giving tickets to a browser](/api/http/tickets#giving-tickets-to-a-browser). It then uses the WebSocket only, so it can call only what has a [WebSocket method](/api/websocket/methods). These throw `ComputerError` with code `unsupported_in_ticket_mode` without sending anything:
+
+- `sessions.create` and `sessions.list`
+- `turns.list` and `turns.cancel`
+- `sessions.capabilities`: read `capabilities` from the attach result instead
+- `workspace.*` and `secrets.*`
+- `tickets.create` and `me`
+
+Everything else, including `events.list`, `turns.get`, `asks.get` and `asks.list`, works over the WebSocket.
 
 ## Writing your own
 
 Any language with HTTP and WebSocket clients will do. A correct client:
 
-1. **Keeps a cursor per session.** The last `seq` it applied, and nothing else, is what it needs to resume.
+1. **Keeps a cursor per session.** The last `seq` it applied and the session's `logEpoch` are all it needs to resume.
 2. **Skips events at or below its cursor.** Repeats happen across reconnects, and are safe to skip.
-3. **Replaces deltas with completed blocks.** Text and reasoning keyed by `blockId`, tool output by `callId`.
-4. **Sends an idempotency key with every message**, and the same key on retry.
-5. **Reconnects before `4001`**, opening the new connection before closing the old.
-6. **Ignores what it does not know**: fields, event types, statuses. See [Versioning](/api/reference/versioning).
-7. **Never logs keys or tickets**, and never puts them in URLs.
+3. **Checks `logEpoch` on every attach and read.** If it differs from the one you stored, discard what you applied at or after `epochStartSeq` and read again from `epochStartSeq - 1`. This only happens if a computer is lost mid-turn.
+4. **Replaces deltas with completed blocks.** Text and reasoning keyed by `blockId`, which is unique in the session, tool output by `callId`. Once a block or call has its completed event, ignore any delta for it that arrives later.
+5. **Sends an idempotency key with every write**, and the same key on retry, over either transport.
+6. **Passes `minSeq` on an HTTP read after a WebSocket write.** Set it to the write's `seq`, so the read includes what the write did. Reads on the same transport as the write need nothing.
+7. **Long-polls instead of polling.** Over HTTP, follow a session with [`GET /events?after=…&waitMs=`](/api/http/events) and wait for a turn with `GET /turns/{turnId}?waitMs=`. Each returns as soon as there is something new.
+8. **Acks on a busy connection.** Send [`sessions.ack`](/api/websocket/methods#ack) every 64 events or 250 ms, so the server measures how far behind you are exactly.
+9. **Recovers from `4008` over HTTP.** If you were more than 10,000 events behind, page `GET /events?after=` until you are within 10,000 of `lastSeq`, then attach. See [Flow control](/api/websocket/flow-control#after-4008).
+10. **Reconnects before `4001`**, opening the new connection before closing the old.
+11. **Ignores what it does not know**: fields, event types, enum values. See [Versioning](/api/reference/versioning).
+12. **Never logs keys or tickets**, and never puts them in URLs.

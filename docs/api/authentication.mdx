@@ -13,9 +13,9 @@ curl "$API/me" -H "x-api-key: $OPENCOMPUTER_API_KEY"
 
 `Authorization: Bearer <key>` works too. When both headers are present they must hold the same key, or the request fails with `401 unauthenticated`.
 
-Create keys on the dashboard under **Settings → API keys**. `opc login` creates one as well, named after your machine. Keys do not expire. Revoke one on the same page, or with `opc logout` for the key `opc` created.
+Create keys on the dashboard under **Settings → API keys**. `opc login` creates one as well, named after your machine. A key lasts until it is revoked, or until its `expiresAt` if it was created with one. Revoke one on the same page, or with `opc logout` for the key `opc` created. A revoked key stops working everywhere within a minute.
 
-A key belongs to the member who created it and acts as that member. It can do exactly what they can, in sessions and in the API, and everything it does is attributed to them, with `via: "api"` or `via: "opc"`. When the member leaves the organization, their keys stop working.
+A key belongs to the member who created it and acts as that member. It can do what they can, in sessions and in the API, up to its scopes, and everything it does is attributed to them, with `via: "api"` or `via: "opc"`. When the member leaves the organization, their keys stop working.
 
 | Key | Can use this API |
 | --- | --- |
@@ -23,28 +23,42 @@ A key belongs to the member who created it and acts as that member. It can do ex
 | A key scoped to one OpenComputer project | No: `403 forbidden` with `"reason": "project_key"` |
 | A key from another organization | It works in its own organization only. Sessions here are `404`. |
 
-Keys have no finer scopes. To limit what a program can do, give it a separate member account.
+### Scopes
+
+A key has every scope unless it was created with fewer. Give a program a key with only the scopes it needs.
+
+| Scope | Allows |
+| --- | --- |
+| `sessions:read` | Reading sessions, turns, asks, events and workspace files, and watching sessions live |
+| `sessions:write` | Creating sessions, sending messages, interrupting, compacting, suspending and resuming, updating sessions and uploading files |
+| `asks:answer` | Answering and dismissing asks |
+| `secrets:write` | Setting and deleting secrets |
+| `terminals` | Opening [terminals](/api/websocket/terminals) |
+
+A request the key's scopes do not cover fails with `403 forbidden`, `"reason": "missing_scope"` and `scope` naming the one it needs. A scope never grants more than the member can do.
 
 <Warning>
-A key is as powerful as the member who created it, including in every session they can reach. Keep it in a secret store, never in a repository, a URL or a browser.
+A key with every scope is as powerful as the member who created it, including in every session they can reach. Keep it in a secret store, never in a repository, a URL or a browser.
 </Warning>
 
-## Tickets, for WebSocket connections
+## WebSocket connections
 
-A browser cannot set headers on a WebSocket, and the key should never reach one. So a WebSocket connection is opened with a **ticket**: a short-lived token you get over HTTP with your key.
+A program that can set headers, such as `opc` or your server, opens the WebSocket with its key on the upgrade request, in `x-api-key` or `Authorization: Bearer`, exactly as over HTTP. There is nothing to get first.
+
+A browser cannot set headers on a WebSocket, and the key should never reach one. So a browser opens its connection with a **ticket**: a short-lived token your server gets over HTTP with its key.
 
 ```bash
-curl -s -X POST "$API/wire/tickets" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
+curl -s -X POST "$API/tickets" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
   -H "content-type: application/json" -d '{ "client": "my-dashboard/1.4.0" }'
 ```
 
 | | API key | Ticket |
 | --- | --- | --- |
-| Used for | HTTP requests | Opening WebSocket connections |
-| Lifetime | Until revoked | 10 minutes to connect. A connection it opened lasts up to an hour. |
+| Used for | HTTP requests, and WebSocket connections from programs | WebSocket connections from browsers |
+| Lifetime | Until revoked or its `expiresAt`. A connection it opened closes with `4001` then. | 10 minutes to connect. A connection it opened lasts up to an hour. |
 | Safe in a browser | No | Yes, for the member it was issued to |
 
-A server can get tickets with its key and hand them to its own browser clients. See [Tickets](/api/http/tickets).
+A server can get tickets with its key and hand them to its own browser clients, limited to some sessions or to reading. See [Tickets](/api/http/tickets).
 
 ## Who am I
 
@@ -54,19 +68,21 @@ A server can get tickets with its key and hand them to its own browser clients. 
 {
   "person": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "email": "igor@acme.dev" },
   "organization": { "id": "org_5n1p9w3e", "name": "acme" },
-  "credential": { "name": "igor-mbp", "kind": "login", "createdAt": "2026-10-25T18:02:11.000Z" },
+  "credential": { "id": "key_8q2x7c1v9b4m", "name": "igor-mbp", "kind": "login", "scopes": ["sessions:read", "sessions:write", "asks:answer", "secrets:write", "terminals"], "expiresAt": null, "createdAt": "2026-10-25T18:02:11.000Z" },
   "computer": { "status": "ready", "region": "iad" },
   "defaults": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits" },
-  "capabilities": { "…": "as on a session" }
+  "capabilities": { "…": "as for a session" }
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `credential.kind` | `login` for keys `opc login` created, `key` for keys created on the dashboard |
+| `credential.scopes` | What the key may do. See [Scopes](#scopes). |
+| `credential.expiresAt` | When the key stops working, or `null` |
 | `computer.status` | `ready`, `asleep` (it starts on first use, which takes seconds) or `not_set_up` |
 | `computer.region` | Where the computer runs. Round trips are shortest close to it. |
 | `defaults` | The settings a new session gets when the request names none |
-| `capabilities` | What a new session would support: the [same object](/api/reference/objects#capabilities) a session has |
+| `capabilities` | What a new session would support: the [same object](/api/reference/objects#capabilities) a [session's capabilities](/api/http/sessions#get-a-sessions-capabilities) route returns |
 
 Read `capabilities` here to validate a model or mode before creating a session.

@@ -34,7 +34,7 @@
           },
           {
             "group": "Sessions",
-            "pages": ["cli/sessions", "cli/sharing", "cli/scripting"]
+            "pages": ["cli/sessions", "cli/sharing", "cli/scripting", "cli/agents"]
           },
           {
             "group": "Files and shells",
@@ -79,7 +79,7 @@
           },
           {
             "group": "WebSocket",
-            "pages": ["api/websocket/connect", "api/websocket/methods", "api/websocket/pty", "api/websocket/flow-control"]
+            "pages": ["api/websocket/connect", "api/websocket/methods", "api/websocket/terminals", "api/websocket/flow-control"]
           },
           {
             "group": "Reference",

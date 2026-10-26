@@ -10,14 +10,15 @@ For code in a repository, this is often unnecessary. The workspace already has e
 ## Push
 
 ```bash
-opc push                     # the current directory, into the session you last attached to
+opc push                     # the current directory, into the last session on this machine
 opc push ~/src/billing -s 7f3a
 opc push . --to billing-wip  # under a different name
 ```
 
 ```
+$ opc push ~/src/billing
+pushing to 7f3a "flaky test in segment.test.ts" (attached 3d ago)
 ↑ billing → workspace/billing · 412 files · 3.1 MB · 0.9 s
-  in session 7f3a "flaky test in segment.test.ts"
 ```
 
 `opc push <dir>` copies the directory to `workspace/<name>`, where `<name>` is the directory's name, or the one given with `--to`. The agent can use it from its next step. Its next turn begins with a note that you pushed it, so you do not need to tell it.
@@ -37,7 +38,9 @@ opc: workspace/billing-service already exists and was not pushed by opc. Use --t
 
 Pushing again to a name you pushed before replaces it entirely, and says so: `replaced workspace/billing (previously pushed 14m ago)`. Files the agent changed there are lost, so pull them first if you need them.
 
-**Which session.** `-s <id>` names it. Without it, `opc push` uses the session you last attached to on this machine and prints its title before sending, so a push never lands somewhere unexpected. `opc -p --push <dir>` pushes into the session it creates, before the message is sent.
+**Which session.** `-s <id>` names it. Without it, `opc push` uses the last session on this machine, the one most recently created or attached here, and prints which one before sending, so a push never lands somewhere unexpected. It does this only when standard input is a terminal: from a script, `opc push` without `-s` fails with `pass -s <id>`. `opc -p --push <dir>` and `opc new --push <dir>` push into the session they create, before the message is sent.
+
+**How fast.** Files travel as one compressed stream, at 50 MB/s or more when you are in the same region as your computer.
 
 | Option | Does |
 | --- | --- |
@@ -45,6 +48,7 @@ Pushing again to a name you pushed before replaces it entirely, and says so: `re
 | `--to <name>` | Name under the workspace |
 | `--no-ignore` | Ignore `.gitignore` and `.opcignore` |
 | `--dry-run` | Lists what would be sent, and its size, and sends nothing |
+| `--idempotency-key <key>` | Makes a repeat of the same push, such as a retry in CI, harmless. Keys last 24 hours. |
 | `--json` | Prints `{ sessionId, path, files, bytes, replaced }` |
 
 **Limits.** 1 GiB and 100,000 files per push, measured after ignores. `--dry-run` tells you where you stand.
@@ -61,7 +65,7 @@ opc pull billing . --force       # into the current directory, overwriting
 ↓ workspace/reports/q3 → ./q3 · 12 files · 280 KB · 0.3 s
 ```
 
-`opc pull <path> [dir]` copies a directory or file from the workspace to your machine. `<path>` is relative to the workspace, and may be any directory in it, including a repository. `[dir]` defaults to `./<last part of path>`.
+`opc pull <path> [dir] [--force]` copies a directory or file from the workspace to your machine. `<path>` is relative to the workspace, and may be any directory in it, including a repository. `[dir]` defaults to `./<last part of path>`.
 
 **What is received.** Everything under the path except `.git`. Ignore files are not applied: you asked for these files, build output included.
 
@@ -69,7 +73,7 @@ opc pull billing . --force       # into the current directory, overwriting
 
 | Option | Does |
 | --- | --- |
-| `-s`, `--session <id>` | Source session. Default: the session you last attached to on this machine. |
+| `-s`, `--session <id>` | Source session. Default, when standard input is a terminal: the last session on this machine. |
 | `--force` | Writes into a directory that already has files |
 | `--dry-run` | Lists what would be written, and what it would overwrite |
 | `--json` | Prints `{ sessionId, path, files, bytes, overwritten }` |

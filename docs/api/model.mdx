@@ -16,9 +16,22 @@ So a client can always build an exact view in two steps:
 
 Events are never changed or removed. An event with a `seq` at or below one you applied is a repeat: skip it. That makes reconnecting safe: attach again with `after` set to the last `seq` you applied, and you get exactly what you missed.
 
+### One writer
+
+Each session's log has exactly one writer at a time, on the computer: the agent process while it runs, and the computer itself while the session has none, because it is suspended, starting or its process stopped. So a message sent to a suspended or starting session is recorded at once, as `message.received` and `turn.queued`, and the agent takes it when it is up. An event is recorded before any client sees it.
+
+### If a computer is lost
+
+The writer's term is numbered by the session's `logEpoch`. It changes only when the computer running a session is lost in the middle of a turn. Then the turn's open tool calls end as `tool.failed`, the turn as `turn.failed` with `runtime_lost`, and the session as `runtime.suspended`, all recorded in the new epoch, starting at the session's `epochStartSeq`.
+
+If `logEpoch` differs from the one you stored, discard what you applied at or after `epochStartSeq` and read again from `epochStartSeq - 1`. This only happens if a computer is lost mid-turn.
+
 ### Deltas are not in the log
 
-While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta` events, sent only over a WebSocket that asked for them. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew. Text and reasoning deltas are tied to their block by `blockId`, tool output by `callId`.
+While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta`, sent only over a WebSocket that asked for them, as `delta` notifications rather than `event`. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew.
+
+- Text and reasoning deltas are tied to their block by `blockId`, tool output by `callId`. Both are unique in the session, not only in the turn.
+- A delta never arrives after its block's completed event. Ignore any delta for a `blockId` or `callId` you have already seen complete.
 
 A client that misses deltas, because it connected late, reconnected or was too slow, loses nothing but the preview. See [Flow control](/api/websocket/flow-control).
 
@@ -31,22 +44,20 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | `idle` | `running` | A message arrives |
 | `running` | `waiting` | The agent raises an ask |
 | `waiting` | `running` | Every open ask closed |
+| `waiting` | `idle` | The asks were open for 24 hours and expired, and the turn was cancelled. See [Asks and suspension](#asks-and-suspension). |
 | `running` | `idle` | The last turn ended and nothing is queued |
 | `idle` | `suspended` | Two hours without activity, or a [suspend](/api/http/control#suspend) |
-| `waiting` | `suspended` | Two hours without activity. The ask stays open, and the status stays `waiting`. |
 | `suspended` | `starting` | A message, an answer, or a [resume](/api/http/control#resume) |
 
 | Status | The agent process | A message sent now |
 | --- | --- | --- |
-| `starting` | Starting, or resuming from `suspended` | Waits, then runs |
+| `starting` | Starting, or resuming from `suspended` | Is recorded at once, then runs |
 | `running` | Working on a turn | Queues, steers or interrupts, by [mode](/api/http/turns#modes) |
-| `waiting` | Blocked on an open ask | Is [held](#messages-while-an-ask-is-open) until the ask closes, unless sent with `interrupt` |
+| `waiting` | Blocked on an open ask. Kept running while the ask is open, for up to 24 hours. | Is [held](#messages-while-an-ask-is-open) until the ask closes, unless sent with `interrupt` |
 | `idle` | Ready | Runs at once |
-| `suspended` | Stopped. Its memory is freed, its workspace and conversation are kept. | Resumes the session, then runs |
+| `suspended` | Stopped. Its memory is freed, its workspace and conversation are kept. | Is recorded at once, resumes the session, then runs |
 
-`waiting` is reported whenever an ask is open, even if the session was suspended with the ask open.
-
-A session never ends. There is no `ended` status and no route to end one: an idle session costs nothing but disk once it is suspended.
+A session never ends. There is no `ended` status and no route to end one: an idle session costs nothing but disk once it is suspended. A session can be `archived`, which hides it from lists and changes nothing else; a new message brings it back.
 
 ## Turns
 
@@ -60,9 +71,15 @@ queued ──▶ running ──▶ completed
 ```
 
 - Turns run one at a time, in the order they were queued.
-- A turn that is `cancelled` was interrupted, or was queued when an interrupt came. A running turn is `cancelling` from the interrupt until the agent has stopped, usually under a second.
+- A turn that is `cancelled` has a `reason`. `interrupted`: it was running or queued when an [interrupt](/api/http/control#interrupt) came. `withdrawn`: it was queued, and someone [cancelled it](/api/http/turns#cancel-a-queued-turn) before it ran. `expired`: its asks were open for 24 hours. A running turn is `cancelling` from the interrupt until the agent has stopped, usually under a second.
 - A turn that `failed` has an [error](/api/reference/errors#turn-failures). The session stays usable: send another message.
-- A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response says what happened in `delivery`.
+- A message sent with `interrupt` records `message.received` with `interruptedTurnIds`, the turns it stopped, before their `turn.cancelled` events.
+
+### Steered and held messages
+
+A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response's `turn` is that running turn, and `delivery` says what happened.
+
+A message joins a turn only if the turn reads it. If the turn ends before the agent took the message in, the message starts a new turn at once, recorded as `turn.queued` or `turn.started` with a new turn id.
 
 ## Asks
 
@@ -72,13 +89,18 @@ An **ask** blocks the turn that raised it until it closes. It closes once, as on
 | --- | --- |
 | `answered` | Someone answered it. For a secret ask, someone set the secret. |
 | `dismissed` | Someone closed it without an answer. The agent is told and decides how to go on. |
-| `interrupted` | Its turn was interrupted |
+| `interrupted` | Its turn was interrupted, or the session was [suspended](/api/http/control#suspend) |
+| `expired` | It was open for 24 hours |
 
-The first close wins. Any later answer or dismissal gets `409 ask_closed`, with the ask as it closed so the client can show who answered.
+The first close wins. Answering again with the same answer, as the same person, returns `200` with the ask. Any later *different* answer, or one from someone else, and any dismissal after it closed, gets `409 ask_closed`, with the ask as it closed so the client can show who answered. An ask's close is recorded as `ask.closed`, with the ask as it closed.
+
+### Asks and suspension
+
+A session with an open ask is not suspended for being idle. It keeps its agent process for up to 24 hours, so the turn carries on the moment someone answers. After 24 hours its open asks close as `expired`, the turn ends `cancelled` with `reason: "expired"`, and the session is `idle`. An explicit [suspend](/api/http/control#suspend) closes open asks as `interrupted` and cancels the turn. An ask is never open on a suspended session.
 
 ### Messages while an ask is open
 
-A message sent while an ask is open is held, not steered: the agent cannot read anything until the ask closes. When it closes, held messages are delivered into the turn in the order they arrived, right after the answer. The send response has `delivery: "held"`.
+A message sent while an ask is open is held, not steered: the agent cannot read anything until the ask closes. The send response has `delivery: "held"`, and its `turn` is the running turn. When the last open ask closes, held messages are delivered into the turn in the order they arrived, right after the answer, each recorded as `message.delivered` with `as: "steering"`. If the turn ends first, for example because the answer was a denial the agent stopped on, the held messages start a new turn, with a new turn id.
 
 A message sent with `interrupt` is not held. It interrupts the turn, which closes the ask, and runs.
 
@@ -88,7 +110,8 @@ Every event caused by a person carries an `actor`: who, and through which client
 
 ## Consistency
 
-- **One writer.** Each session's log is written in one place, so every client sees the same events in the same order.
-- **Read your writes.** A successful response means the change is in the log. A session read after it includes it.
-- **Live is not slower than the log.** An event reaches attached WebSocket clients when it is appended, not after a poll.
-- **Snapshots may lag events.** A session in a list can be a few seconds behind its log. A session read by id is not.
+- **One writer.** Each session's log is written in one place, the [writer](#one-writer), so every client sees the same events in the same order.
+- **Read your writes.** A successful response means the change is in the log. On the same transport, a later read includes it. Across transports, such as a send over the WebSocket followed by an HTTP read, pass the write's `seq` as `minSeq` on the read: it waits up to 2 seconds for the change, or fails with `503 unavailable` and `retryAfterMs`. `opc` and the client library do this for you.
+- **Live is not slower than the log.** Over the WebSocket, an event reaches attached clients when it is appended, not after a poll.
+- **Lists may lag.** A session in a list can be a few seconds behind its log.
+- **A read by id is current as of its `lastSeq`.** The session's `syncedAt` says when its copy last heard from the computer. When the computer is not reachable, it shows how old the snapshot is.

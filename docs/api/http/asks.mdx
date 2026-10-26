@@ -5,7 +5,32 @@ description: "List, answer and dismiss approvals, questions and secret requests.
 
 An open ask blocks its turn until a person answers it. Read [Asks in the model](/api/model#asks) for how they close, and [Ask](/api/reference/objects#ask) for their fields.
 
-Asks arrive as `ask.opened` events, and the session's `asks` lists those that are open. A program that only polls can check `status == "waiting"` on the session.
+Asks arrive as `ask.opened` events and close as `ask.closed`, each with the [Ask](/api/reference/objects#ask). The session's `asks` lists those that are open. A program that only reads over HTTP can check `status == "waiting"` on the session.
+
+Every ask has the same fields, and one sub-object named after its `kind` with what is particular to it. The other two are `null`:
+
+```json
+{
+  "id": "ak_7c1v9b4m8q2x",
+  "sessionId": "cs_7f3a9k2m4q8r1t6v",
+  "turnId": "tn_4m8q2x7c1v9b",
+  "kind": "approval",
+  "status": "open",
+  "createdAt": "2026-10-26T09:05:11.002Z",
+  "closedAt": null,
+  "closedBy": null,
+  "answer": null,
+  "approval": {
+    "toolName": "Bash",
+    "callId": "toolu_01AbC",
+    "input": { "command": "terraform plan -out plan.bin", "cwd": "infra/staging" },
+    "title": "Bash: terraform plan -out plan.bin",
+    "alwaysAllows": "Bash(terraform plan *)"
+  },
+  "question": null,
+  "secret": null
+}
+```
 
 ## List asks
 
@@ -15,7 +40,7 @@ GET /sessions/{id}/asks
 
 | Query | Meaning |
 | --- | --- |
-| `status` | `open` (default), `answered`, `dismissed`, `interrupted`, or `all` |
+| `status` | `open` (default), `answered`, `dismissed`, `interrupted`, `expired`, or `all` |
 | `limit`, `cursor` | As for every list. Default 20. |
 
 Returns `{ "asks": [Ask…], "nextCursor" }`, newest first.
@@ -44,10 +69,10 @@ The body depends on the ask's `kind`.
 
 | Field | Meaning |
 | --- | --- |
-| `decision` | `allow`, `deny`, or `always`: allow this call and the matching ones the ask's `always` describes, for the rest of the session. `always` is refused with `400 invalid_answer` when the ask's `always` is `null`. |
+| `decision` | `allow`, `deny`, or `always`: allow this call and the ones matching `approval.alwaysAllows`, such as `Bash(terraform plan *)`, for the rest of the session. `always` is refused with `400 invalid_answer` when `alwaysAllows` is `null`. |
 | `message` | Optional, up to 2,000 characters. The agent reads it with the decision. Useful with `deny` to say what to do instead. |
 
-Allowing a plan, an approval whose `tool.name` is `ExitPlanMode`, also switches the session from `plan` mode to `default`, so the agent can carry it out. The `session.updated` event records the change.
+Allowing a plan, an approval whose `approval.toolName` is `ExitPlanMode`, also switches the session from `plan` mode to `default`, so the agent can carry it out. The `session.updated` event records the change.
 
 **Question.**
 
@@ -59,20 +84,20 @@ Allowing a plan, an approval whose `tool.name` is `ExitPlanMode`, also switches 
 }
 ```
 
-One entry per question, every question answered. `choices` are option labels, exactly as given. At most one unless the question has `multiSelect`. `text` is an answer in your own words, alone or with choices.
+One entry per question in `question.questions`, every question answered. `choices` are option labels, exactly as given. At most one unless the question has `multiSelect`. `text` is an answer in your own words, alone or with choices.
 
-**Secret.** A secret ask cannot be answered through this route, which would put the value in the session's history. [Set the secret](/api/http/secrets#set-a-secret) instead. Setting a secret with the ask's `name` that reaches the session answers the ask. This route returns `400 answer_with_secret`.
+**Secret.** A secret ask cannot be answered through this route, which would put the value in the session's history. [Set the secret](/api/http/secrets#set-a-secret) instead. Setting a secret named `secret.name` that reaches the session answers the ask. This route returns `400 answer_with_secret`.
 
-The response is `200 { "ask": Ask }`, closed, with `closedBy` and `answer` set.
+The response is `200 { "ask": Ask, "seq" }`, the ask closed, with `closedBy` and `answer` set. `seq` is the ask's `ask.closed` event.
 
 | Status | Code | When |
 | --- | --- | --- |
-| `400` | `invalid_answer` | The answer does not fit the ask: a missing question, an unknown choice, too many choices. `error.field` says where. |
+| `400` | `invalid_answer` | The answer does not fit the ask: a missing question, an unknown choice, too many choices. `error.field` says where, such as `answers[0].choices`. |
 | `400` | `answer_with_secret` | The ask is a secret ask |
 | `404` | `ask_not_found` | |
-| `409` | `ask_closed` | Someone else answered or dismissed it first, or its turn was interrupted. `error.ask` is the ask as it closed. |
+| `409` | `ask_closed` | It closed before this answer: someone else answered or dismissed it, its turn was interrupted, or it expired. `error.ask` is the ask as it closed. |
 
-Answers are idempotent without a key: answering an ask again with the same answer, as the same person, returns `200` with the ask. A different answer gets `409 ask_closed`.
+Answers are idempotent without a key: answering an ask again with the same answer, as the same person, returns `200` with the ask. Any later different answer, or one from someone else, gets `409 ask_closed`.
 
 ## Dismiss an ask
 
@@ -82,8 +107,8 @@ POST /sessions/{id}/asks/{askId}/dismiss
 
 Closes the ask without an answer, as `dismissed`. The agent is told nobody answered, and decides how to go on: for an approval, as if denied. Works for every kind, including secret asks. The body is empty or `{ "message": "…" }`, which the agent reads.
 
-Returns `200 { "ask": Ask }`. Errors as for answering.
+Returns `200 { "ask": Ask, "seq" }`. Errors as for answering.
 
-## Answering an ask on a suspended session
+## Asks and suspension
 
-An ask stays open while its session is suspended. Answering it resumes the session, and the turn carries on from where it waited. The response returns before the resume completes.
+An ask is never open on a suspended session. A session with an open ask keeps its agent process for up to 24 hours, so an answer carries the turn on at once. After 24 hours its open asks close as `expired` and the turn is cancelled with reason `expired`. Suspending the session explicitly closes them as `interrupted`. Either way, `ask.closed` records it, and an answer after that gets `409 ask_closed`. See [Asks and suspension](/api/model#asks-and-suspension).

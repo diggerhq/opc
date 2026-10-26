@@ -7,8 +7,9 @@ Sessions are shared within an organization, the same way a Slack thread is share
 
 | Who | Can |
 | --- | --- |
-| The owner, who started the session | Everything |
-| Any member of the organization | See it in `opc ls --all` and on the dashboard, attach, send messages, answer asks, change settings |
+| The owner, who started the session | Everything, including opening a [shell](/cli/shell) in its workspace |
+| An organization admin | What any member can, and open a shell |
+| Any member of the organization | See it in `opc ls --all` and on the dashboard, attach, send messages, answer asks, change settings. Not open a shell. |
 | A member who cannot see the Slack channel a session started in | Nothing: the session is not listed and attaching fails with `session not found` |
 | An API key | What the member who created it can do |
 

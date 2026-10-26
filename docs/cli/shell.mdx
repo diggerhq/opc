@@ -7,19 +7,29 @@ description: "A terminal in the session's workspace, on the computer."
 opc shell 7f3a
 ```
 
-`opc shell` opens an interactive shell on the computer, in the session's workspace, as the same user the agent runs as. It behaves like `ssh`: your terminal talks straight to the remote shell, with colors, full-screen programs and resizing. `exit` or `Ctrl+D` closes it.
+`opc shell [id] [-c <command>] [--no-tty]` opens an interactive shell on the computer, in the session's workspace, as the same user the agent runs as. It behaves like `ssh`: your terminal talks straight to the remote shell, with colors, full-screen programs and resizing. `exit` or `Ctrl+D` closes it.
 
 Inside a session, `/shell` does the same and returns to the session screen when the shell exits.
 
-- **Which session.** The id, or the session you last attached to on this machine when omitted. A suspended session stays suspended: the shell does not need the agent, so it opens at once.
+- **Which session.** The id, given in place or with `-s`. Without one, the last session on this machine, but only when standard input is a terminal; a script must pass `-s <id>`. A suspended session stays suspended: the shell does not need the agent, so it opens at once.
+- **How fast.** Each active session keeps one shell started in advance, so the remote prompt appears one round trip after you press `Enter`. Each keystroke echoes one round trip later.
 - **What you see.** The same files the agent sees, live. Changes you make are visible to the agent at once, and the other way round.
 - **While the agent works.** Allowed. You and the agent share one filesystem, so avoid editing a file the agent is editing.
-- **How long it lasts.** Until you exit or disconnect. A dropped connection ends the shell and its foreground program, as with `ssh`. Use `tmux` on the computer for anything that must survive.
+- **Its connection.** `opc shell` opens a connection of its own, so a shell never slows the session's stream, and the other way round. `/shell` does the same.
+- **How long it lasts.** Until you exit or the connection ends. A dropped connection ends the shell as with `ssh`: its programs get `SIGHUP`, and whatever is still running 5 seconds later is killed. Use `tmux` on the computer for anything that must survive.
 - **Suspending.** A session with an open shell is not suspended for being idle.
-- **Secrets.** The session's secrets are not in the shell's environment. The shell is for looking around, not for acting as the agent.
+
+## Who can open one
+
+Only the session's owner, or an admin of the organization. Anyone else gets `opc: only the owner of this session can open a shell in it` and exit code `3`.
+
+A shell runs as the computer's agent user, the same user every session's agent runs as. It can read every session's workspace on the computer, not only this one's. It does not get the session's secrets: they are not in its environment, and it cannot read them from the agent's processes. The shell is for looking around, not for acting as the agent.
+
+## Options
 
 | Option | Does |
 | --- | --- |
+| `-s`, `--session <id>` | The session, when not given in place |
 | `-c`, `--command <command>` | Runs one command instead of an interactive shell, prints its output and exits with its exit code |
 | `--no-tty` | No terminal on the remote side, for piping binary output |
 
