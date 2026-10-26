@@ -2,7 +2,7 @@
 
 **Your organization's Computer, in your terminal.**
 
-`opc` is a command-line client for [Computer](https://app.opencomputer.dev/computer), the agent your team works with in Slack. Sessions are shared: what you start here shows up in Slack and on the dashboard, and a Slack thread can be attached from here.
+`opc` is a command-line client for [Computer](https://app.opencomputer.dev/computer), the agent your team works with in Slack. Sessions are shared: one started here shows up on the dashboard, and a Slack thread can be attached from here.
 
 ## Install
 
