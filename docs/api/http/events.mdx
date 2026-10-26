@@ -16,9 +16,9 @@ curl -s "$API/sessions/cs_7f3a9k2m4q8r1t6v/events?after=0" -H "x-api-key: $OPENC
 | `after` | Return events with a `seq` greater than this. Default `0`, the start. |
 | `limit` | 1 to 500. Default 100. |
 | `waitMs` | When no event is past `after`, hold the request open until one is, for up to this many milliseconds, 0 to 60,000. Default `0`: answer at once. |
-| `tailTurns` | Instead of `after`: the full events of the last this many turns, with the turns before them summarized in `earlierTurns`. See [Start from the end](#start-from-the-end). |
+| `tailTurns` | Instead of `after`, 1 to 50: the full events of the last this many turns, with the turns before them summarized in `earlierTurns`. See [Start from the end](#start-from-the-end). |
 | `turnId` | Only events of this turn |
-| `types` | Only these types, separated by commas. A trailing `*` matches a prefix, such as `tool.*`. |
+| `types` | Only these types, separated by commas. A trailing `*` matches a prefix, such as `tool.*`. An unknown type matches nothing. |
 
 ```json
 {

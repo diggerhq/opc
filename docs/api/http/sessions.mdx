@@ -19,10 +19,10 @@ curl -s "$API/sessions" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
 | --- | --- | --- |
 | `id` | string, optional | The session's id, if you want to choose it: `cs_` followed by 16 characters of lowercase Crockford base32 (`0-9a-hjkmnp-tv-z`). Default: one is made for you. |
 | `input` | string, optional | The first message. Sent as a turn as soon as the session exists, in the same request. Up to 100,000 characters. |
-| `title` | string, optional | Up to 200 characters. Default: taken from `input`, or `Untitled` until the first message. |
+| `title` | string, optional | Up to 200 characters. Default: the first 80 characters of `input`, or `Untitled`. |
 | `model` | string, optional | A model `id` from [`capabilities.models`](/api/reference/objects#capabilities). Default: your organization's. |
 | `effort` | string, optional | One of the model's `efforts` |
-| `mode` | string, optional | A permission mode from `capabilities.modes` |
+| `mode` | string, optional | A permission mode from `capabilities.modes`. Default: `bypassPermissions`, as for Slack sessions. |
 | `metadata` | object, optional | Your own labels: up to 20 keys of at most 40 characters, each a string of at most 500 characters. Filter lists by them. |
 
 The response is `201`:
@@ -39,7 +39,7 @@ The response is `201`:
 
 `turn` and `delivery` are what [sending](/api/http/turns#send-a-message) `input` returned, or `null` without it. `seq` is the last event the request recorded. The response returns as soon as the session exists. It does not wait for the agent to start: watch `status`, or the `runtime.connected` event.
 
-With an `Idempotency-Key` that already created a session, the response is `200` with the same session, as it is now, and `duplicate: true`. See [Idempotency](/api/reference/idempotency).
+With an `Idempotency-Key` that already created a session, the response is `200` with the same session and turn, as they are now, and `duplicate: true`. See [Idempotency](/api/reference/idempotency).
 
 **Choosing the id.** A client that sends `id` knows the session's id before the response arrives, so it can attach over the WebSocket at the same moment it creates the session, as `opc` does. An attach to an id that does not exist yet waits up to 2 seconds for the create. An `id` already taken by another create is refused with `409 id_conflict`; a repeat of the same create with the same `Idempotency-Key` returns the original.
 
@@ -52,11 +52,12 @@ To give the agent files before its first message, create the session without `in
 | `400` | `invalid_request` | A field is unknown, has the wrong type or is too long. `error.field` names it. |
 | `400` | `unsupported_model` | `model` is not in `capabilities.models`. `error.field` is `model`. |
 | `400` | `unsupported_effort` | The model does not accept `effort`. `error.field` is `effort`. |
-| `400` | `unsupported_mode` | `mode` is not in `capabilities.modes`, or your organization does not allow it. `error.field` is `mode`. |
+| `400` | `unsupported_mode` | `mode` is not in `capabilities.modes`. `error.field` is `mode`. |
 | `402` | `insufficient_credits` | Your organization is out of credits |
 | `409` | `id_conflict` | `id` belongs to another session |
 | `409` | `idempotency_conflict` | The key was used with a different body |
 | `409` | `computer_not_set_up` | Your organization has not finished setting up its computer |
+| `503` | `computer_unavailable` | Your computer is down or starting. Nothing was created. Retry after `retryAfterMs` with the same `Idempotency-Key`; `opc` does. |
 
 ## List sessions
 
@@ -71,7 +72,7 @@ curl -s "$API/sessions?owner=me&metadata[ticket]=ENG-412" -H "x-api-key: $OPENCO
 | Query | Meaning |
 | --- | --- |
 | `owner` | `me` (default) for sessions you own, `anyone` for every session you can see, or a person's `usr_` id |
-| `status` | One status, or several separated by commas, such as `running,waiting` |
+| `status` | One status, or several separated by commas, such as `running,waiting`. An unknown status matches nothing. |
 | `origin` | Where sessions started: `slack`, `opc`, `dashboard` or `api`, or several separated by commas |
 | `archived` | `false` (default), `true`, or `all` |
 | `metadata[key]` | Only sessions whose `metadata` has this value for `key`. Repeat for several keys; a session must match all. |
@@ -87,13 +88,13 @@ curl -s "$API/sessions?owner=me&metadata[ticket]=ENG-412" -H "x-api-key: $OPENCO
 }
 ```
 
-Each session is the [Session](/api/reference/objects#session) object, identical to what [`GET /sessions/{id}`](#get-a-session) returns. `nextCursor` is `null` on the last page. A cursor is opaque, and is valid only with the same filters and `order`.
+Each session is the [Session](/api/reference/objects#session) object, identical to what [`GET /sessions/{id}`](#get-a-session) returns. `nextCursor` is `null` on the last page. A cursor is opaque, and is valid only with the same filters and `order`: with others it is `400 invalid_cursor`.
 
 **Order and paging.** With `order=active`, a session that becomes active while you page moves to the top, so a later page can skip or repeat it. That is right for a screen like `opc ls`, which reads the first page again to refresh. To walk every session exactly once, use `order=created`.
 
 **Freshness.** A session in a list can be a few seconds behind its log. Read it by id for its state as of its `lastSeq`.
 
-**Visibility.** You see every session in your organization except those started in a Slack channel you are not a member of. A Slack session's channel membership is checked when the list is read.
+**Visibility.** You see every session in your organization except those started in Slack, which for now only their owner sees here. Slack channel membership is not checked yet.
 
 ## Get a session
 
@@ -139,7 +140,7 @@ curl -s -X PATCH "$API/sessions/cs_7f3a9k2m4q8r1t6v" -H "x-api-key: $OPENCOMPUTE
 | `archived` | At once. `true` hides the session from lists unless they ask for `archived`. A new message sets it back to `false`. |
 | `metadata` | At once. Merged into the session's `metadata`: keys you send are set, a key sent as `null` is removed. Limits as for [create](#create-a-session). |
 
-Fields you leave out are not changed. The response is `{ "session": …, "seq" }` after the change, and a `session.updated` event records who changed what.
+Fields you leave out are not changed. The response is `{ "session": …, "seq" }` after the change, and a `session.updated` event records who changed what. While your computer is down, a change to `archived` or `metadata` still applies, but records no `session.updated` and does not move `seq`.
 
 Changing `model` resets `effort` to the new model's default when the current effort is not one of its `efforts`. The response shows the result.
 

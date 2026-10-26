@@ -33,7 +33,7 @@ curl -s -X POST "$API/tickets" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
 
 | Field | Meaning |
 | --- | --- |
-| `token` | The ticket. Letters, digits, `_` and `-`, at most 200 characters. |
+| `token` | The ticket. Letters, digits, `_` and `-`, at most 1,024 characters. |
 | `url` | Where to connect. Use it as given. |
 | `expiresAt`, `expiresInMs` | 10 minutes from now. Connections must open before then. `expiresInMs` does not depend on the browser's clock being right. |
 
@@ -74,7 +74,7 @@ The ticket acts as the member who owns the key, whoever holds it. Only hand it t
 
 | Status | Code | When |
 | --- | --- | --- |
-| `400` | `invalid_request` | A `sessionIds` entry is not a session id |
+| `400` | `invalid_request` | A field is unknown, `readOnly` is not a boolean, `client` is over 64 characters or not ASCII, `sessionIds` has more than 20 entries, or an entry is not a session id. `error.field` names it. |
 | `401` | `unauthenticated` | No key, or a revoked one |
 | `403` | `forbidden` | A project-scoped key |
 | `429` | `rate_limited` | More than 60 tickets a minute for one key |

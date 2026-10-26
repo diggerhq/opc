@@ -292,7 +292,7 @@ opc secret ls [-s <id>] [--json]
 opc secret rm <NAME> [--scope session|me|organization] [-s <id>]
 ```
 
-Manages secrets the agent can use. `set` reads the value from a hidden prompt, or from standard input when it is not a terminal; `--file` reads it from a file and gives it to the agent as a file. `--scope` defaults to `session`, which needs `-s`, or uses the last session when standard input is a terminal. `ls` prints names and scopes, never values; `--json` prints `{ "secrets": [Secret…] }`. See [Secrets](/terminal/asks#secrets).
+Manages secrets the agent can use. Not available yet: the server answers `409 feature_unavailable`, and `opc secret` says so. `set` reads the value from a hidden prompt, or from standard input when it is not a terminal; `--file` reads it from a file and gives it to the agent as a file. `--scope` defaults to `session`, which needs `-s`, or uses the last session when standard input is a terminal. `ls` prints names and scopes, never values; `--json` prints `{ "secrets": [Secret…] }`. See [Secrets](/terminal/asks#secrets).
 
 ## opc login, logout, whoami
 

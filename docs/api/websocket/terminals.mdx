@@ -56,7 +56,7 @@ Terminal data travels in binary WebSocket frames, both ways, never in JSON:
 - From the server: output on `channel`, and standard error on `stderrChannel`.
 - From you: input on `channel`, exactly the bytes a terminal would send, such as `\r` for `Enter` and `\x03` for `Ctrl+C`.
 - Output is sent as it is produced, without buffering for size, and ahead of events, so a keystroke's echo comes back in one round trip.
-- At most 64 KiB per frame.
+- At most 64 KiB per frame, the 4-byte header included.
 
 ## terminals.resize
 
@@ -97,6 +97,5 @@ All output is sent before `terminal.exited`. `exitCode` is `null` when a signal 
 | Error `data.code` | When |
 | --- | --- |
 | `forbidden` | You are not the session's owner or an admin (`reason: "terminal_owner_only"`), or your key lacks the `terminals` scope (`reason: "missing_scope"`) |
-| `feature_unavailable` | `capabilities.features.terminal` is `false` |
 | `too_many_terminals` | 8 are already open in this session |
 | `terminal_not_found` | The `terminalId` is not open on this connection |

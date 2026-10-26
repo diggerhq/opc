@@ -74,3 +74,5 @@ POST /sessions/{id}/resume
 Starts the agent process of a suspended session, without sending anything. Sending a message resumes the session anyway, so this is only to save the wait. Resuming takes a few seconds; `opc` starts it the moment you pick the session on its interactive screen.
 
 Returns `202 { "session": Session, "seq" }` as soon as the resume has started, with `status: "starting"`. `runtime.connected` with `resumed: true` follows when it is ready. On a session that is not suspended, it returns `200` and does nothing.
+
+`402 insufficient_credits` when your organization is out of credits. `503 computer_unavailable` when your computer is down, and `503 unavailable` on a temporary failure, both with `retryAfterMs`.

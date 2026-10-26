@@ -3,7 +3,7 @@ title: "Methods"
 description: "Every WebSocket method, its parameters, its result and its notifications."
 ---
 
-A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the same resource and verb. Its params are that route's path parameters, query and body, flattened into one object, and its result is the route's response. Every session method takes `sessionId`. The exceptions are `sessions.attach` and `sessions.detach`, which only the WebSocket has, and the terminal methods.
+A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the same resource and verb. Its params are that route's path parameters, query and body, flattened into one object, and its result is the route's response. The one exception is `asks.answer`, whose body stays nested as `answer`: `{ sessionId, askId, answer: { decision: "allow" }, idempotencyKey? }`. Every session method takes `sessionId`. The exceptions are `sessions.attach` and `sessions.detach`, which only the WebSocket has, and the terminal methods.
 
 `turns.send` is the create verb for turns. It is named `send` because a message may join a running turn rather than create one.
 
@@ -16,8 +16,9 @@ A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the 
 | [`sessions.interrupt`](#interrupt), `sessions.compact`, `sessions.suspend`, `sessions.resume` | [Control](/api/http/control) |
 | [`turns.send`](#send) | [`POST /sessions/{id}/turns`](/api/http/turns#send-a-message) |
 | `turns.get` | [`GET /sessions/{id}/turns/{turnId}`](/api/http/turns#get-a-turn), with `turnId` |
+| `turns.cancel` | [`POST /sessions/{id}/turns/{turnId}/cancel`](/api/http/turns#cancel-a-queued-turn), with `turnId` |
 | `asks.list`, `asks.get` | [`GET /sessions/{id}/asks`](/api/http/asks#list-asks) and [`GET /sessions/{id}/asks/{askId}`](/api/http/asks#get-an-ask), with `askId` |
-| `asks.answer`, `asks.dismiss` | [Asks](/api/http/asks), with `askId` |
+| `asks.answer`, `asks.dismiss` | [Asks](/api/http/asks), with `askId`. `asks.answer` takes the answer as `answer`. |
 | `subagents.list`, `subagents.get` | [`GET /sessions/{id}/subagents`](/api/http/subagents#list-subagents) and [`GET /sessions/{id}/subagents/{subagentId}`](/api/http/subagents#get-a-subagent), with `subagentId` |
 | `subagents.stop` | [Stop a subagent](/api/http/subagents#stop-a-subagent), with `subagentId` |
 | `events.list` | [`GET /sessions/{id}/events`](/api/http/events) |
@@ -40,7 +41,7 @@ Starts sending a session's events to this connection. A session can also be atta
 | --- | --- |
 | `sessionId` | |
 | `after` | Optional. Also send recorded events with a `seq` greater than this, before live ones. Omit to get only what happens from now. |
-| `tailTurns` | Optional, without `after`. Also send the full recorded events of the last `tailTurns` turns, before live ones, and summarize the turns before them in `earlierTurns`. |
+| `tailTurns` | Optional, without `after`, 1 to 50. Also send the full recorded events of the last `tailTurns` turns, before live ones, and summarize the turns before them in `earlierTurns`. |
 | `deltas` | Optional, default `false`. Also send [deltas](/api/reference/events#text): text as it is written, and tool output as it is produced. |
 | `resume` | Optional, default `false`. `true` resumes the session if it is suspended, in the same request. |
 | `readOnly` | Optional, default `false`. `true` refuses every write to this session on this connection with `403 forbidden` and `reason: "read_only"`. `opc a --read-only` uses it. |
@@ -131,8 +132,10 @@ A delta for a `blockId` or `callId` whose completed event you already applied is
 
 | `reason` | Means | Do |
 | --- | --- | --- |
-| `access_lost` | You can no longer see the session, such as after leaving its Slack channel | Stop showing it |
+| `access_lost` | You can no longer see the session, such as after your key lost a scope | Stop showing it |
 | `too_far_behind` | You fell more than 8 MiB or 10,000 events behind on this session | Attach again with `after` set to your last applied `seq`. See [Flow control](/api/websocket/flow-control). |
+| `epoch_changed` | The session's `logEpoch` changed: its computer was lost mid-turn | Discard what you applied at or after the new `epochStartSeq` and attach again with `after` set to `epochStartSeq - 1`. See [If a computer is lost](/api/model#if-a-computer-is-lost). |
+| `unavailable` | The session's writer cannot be reached for now, such as while your computer restarts | Attach again with `after` set to your last applied `seq`, with backoff |
 
 ## Errors
 

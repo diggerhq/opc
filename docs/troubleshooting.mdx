@@ -40,7 +40,7 @@ $ opc doctor
     The connection dropped. `opc` reconnects at once when the network changes, when your machine wakes or when you press `Enter`, and otherwise with backoff, at most 8 seconds apart. Then it catches up on everything it missed. Messages you send meanwhile are marked `pending` and sent once; `Esc` takes them back into the prompt line. Nothing is lost on the computer: the session keeps working without you.
   </Accordion>
   <Accordion title="session not found">
-    The id or prefix matches no session you can see. Sessions from Slack channels you are not in are hidden, and archived sessions are not matched by title. Try `opc ls --archived`, or the Slack thread link. `opc ls` lists only your own sessions; a colleague's attaches by id or link.
+    The id or prefix matches no session you can see. Sessions started in Slack are hidden from everyone but their owner, for now, and archived sessions are not matched by title. Try `opc ls --archived`, or the Slack thread link. `opc ls` lists only your own sessions; a colleague's attaches by id or link.
   </Accordion>
   <Accordion title="opc: looks like a message">
     The first word was the name of a command, and the rest did not fit it, so `opc` did nothing. Quote the message: `opc "push the fix to main"`, or put `--` first: `opc -- push the fix to main`. See [Start a session](/cli/sessions#start-a-session).

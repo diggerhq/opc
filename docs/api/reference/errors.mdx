@@ -27,7 +27,7 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `400` | `invalid_request` | `field` | A parameter is missing, has the wrong type or is out of range, or the request has a field the route does not know |
 | `400` | `unsupported_model` | `field` | The model is not in the session's [capabilities](/api/reference/objects#capabilities) `models` |
 | `400` | `unsupported_effort` | `field` | The model does not accept that effort |
-| `400` | `unsupported_mode` | `field` | The permission mode is not in `capabilities.modes`, such as one your organization does not allow |
+| `400` | `unsupported_mode` | `field` | The permission mode is not in `capabilities.modes` |
 | `400` | `invalid_answer` | `field` | An answer does not fit its ask |
 | `400` | `answer_with_secret` | | A secret request is answered by [setting the secret](/api/http/secrets) |
 | `400` | `invalid_path` | | A workspace path is absolute, contains `..`, or is not a valid upload name |
@@ -52,10 +52,10 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `409` | `feature_unavailable` | `feature` | The session's `capabilities.features` lacks it |
 | `409` | `computer_not_set_up` | | Finish setting up your computer on the dashboard |
 | `413` | `too_large` | `bytes`, `files` | Over a [limit](/api/reference/limits) |
-| `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. See [Versioning](/api/reference/versioning#opc). |
+| `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. Reserved, not sent yet. See [Versioning](/api/reference/versioning#opc). |
 | `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. |
 | `500` | `internal` | | Our fault. Retry with the same idempotency key. |
-| `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting or being updated. Retry. |
+| `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting, being updated or down, and nothing was recorded. Retry with the same idempotency key. |
 | `503` | `unavailable` | `retryAfterMs` | A temporary failure, or a read with `minSeq` that the server's copy of the log did not reach within 2 seconds. Retry. |
 
 ### WebSocket only

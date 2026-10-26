@@ -50,7 +50,7 @@ The server's first message is `ready`:
 | `server` | `version` is for support requests: do not branch on it. `region` is where the connection ends. |
 | `protocol.features` | Optional protocol features this server offers. Use one only when it is listed. See [Versioning](/api/reference/versioning#the-websocket-protocol-version). |
 | `limits` | The limits on this connection |
-| `expiresAt`, `expiresInMs` | For a connection opened with a ticket: when the server will close it with `4001`. Use `expiresInMs`, which does not depend on your clock. `null` for a connection opened with a key. |
+| `expiresAt`, `expiresInMs` | For a connection opened with a ticket: when the server will close it with `4001`. Use `expiresInMs`, which does not depend on your clock. For a connection opened with a key: the key's `expiresAt`, or `null` for a key without an expiry. |
 
 You do not have to wait for `ready`. Requests sent right after the socket opens are answered in order after it.
 
@@ -131,7 +131,7 @@ A connection the server refuses is still accepted, then closed at once with one 
 | `1011` | Server error | Reconnect with backoff |
 | `1012` | The server is restarting | Reconnect at once |
 | `4001` | The credential expired or was revoked, or a ticket connection reached its one-hour lifetime | With a ticket, reconnect with a new one, better before `expiresInMs`. With a key, check it: a request with it fails with `401` if it was revoked. |
-| `4003` | Forbidden: the ticket is invalid, or the credential may not use the computer | Get a new ticket. If that fails with `401`, the key was revoked. |
+| `4003` | Forbidden: the ticket is invalid, the credential may not use the computer, or the upgrade carried both a ticket and a key (reason `ticket_and_key`) | Send one credential. Get a new ticket. If that fails with `401`, the key was revoked. |
 | `4008` | You stopped reading, and more than 16 MiB waited to be sent | Reconnect and catch up. See [Flow control](/api/websocket/flow-control#after-4008). |
 | `4029` | Too many connections for this member: more than 50 | Close some |
 | `4400` | No supported protocol version was offered | Upgrade your client. `opc` exits with code `2`. |

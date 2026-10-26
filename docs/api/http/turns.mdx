@@ -70,6 +70,8 @@ A message sent with `interrupt` records `message.received` with `interruptedTurn
 
 Send as usual. The message is recorded at once, the session resumes, which takes a few seconds, and the message runs. The response does not wait for the resume: it returns `delivery: "started"` with the turn still `queued`, at once.
 
+This needs your computer to be up. When it is down or starting, the send records nothing and fails with `503 computer_unavailable` and `retryAfterMs`. Retry with the same `Idempotency-Key`; `opc` does.
+
 ### Idempotency
 
 Send an `Idempotency-Key` to make retries safe. Keys are per member and per operation, and this route and the WebSocket's `turns.send` are one operation: a send retried over the other transport with the same key is a repeat, not a second message. See [Idempotency](/api/reference/idempotency).
@@ -78,11 +80,12 @@ Send an `Idempotency-Key` to make retries safe. Keys are per member and per oper
 
 | Status | Code | When |
 | --- | --- | --- |
-| `400` | `invalid_request` | `input` is missing, empty or too long, or `mode` is unknown |
+| `400` | `invalid_request` | `input` is missing, empty or too long, or `ifBusy` is unknown |
 | `402` | `insufficient_credits` | Your organization is out of credits |
 | `404` | `session_not_found` | |
-| `409` | `idempotency_conflict` | The key was used with a different `input` or `mode` |
+| `409` | `idempotency_conflict` | The key was used with a different `input` or `ifBusy` |
 | `409` | `queue_full` | 20 turns are already queued. Wait for one to start, or send with `interrupt`. Retryable, with `retryAfterMs`. |
+| `503` | `computer_unavailable` | Your computer is down or starting. Nothing was recorded. Retryable, with `retryAfterMs`. |
 
 ## List turns
 
@@ -92,7 +95,7 @@ GET /sessions/{id}/turns
 
 | Query | Meaning |
 | --- | --- |
-| `status` | One status, or several separated by commas |
+| `status` | One status, or several separated by commas. An unknown status matches nothing. |
 | `limit` | 1 to 100. Default 20. |
 | `cursor` | The `nextCursor` from the previous page |
 | `minSeq` | Wait up to 2 seconds until the list includes this `seq`. See [Consistency](/api/model#consistency). |

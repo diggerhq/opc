@@ -10,7 +10,7 @@ Sessions are shared within an organization, the same way a Slack thread is share
 | The owner, who started the session | Everything, including opening a [shell](/cli/shell) in its workspace |
 | An organization admin | What any member can, and open a shell |
 | Any member of the organization | See it on the dashboard, attach by id or Slack link, send messages, answer asks, change settings. Not open a shell. |
-| A member who cannot see the Slack channel a session started in | Nothing: the session is not listed and attaching fails with `session not found` |
+| Anyone but the owner, for a session started in Slack | Nothing, for now: the session is not listed and attaching fails with `session not found`. Slack channel membership is not checked yet. |
 | An API key | What the member who created it can do |
 
 Everything anyone does is attributed. Messages, answers and setting changes carry the person's name and where they came from, in every client and in the [event log](/api/reference/events).

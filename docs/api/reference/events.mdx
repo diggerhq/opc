@@ -59,7 +59,7 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 | --- | --- | --- |
 | `message.received` | A message was accepted. Recorded before anything runs. | `input`, `ifBusy`, `delivery`, `interruptedTurnIds`: the turns this message interrupted, empty unless it was sent with `interrupt`; `declinedAskIds`: the asks it [declined](/api/model#messages-while-an-ask-is-open), empty unless it was steered while an ask was open |
 | `turn.queued` | A new turn waits behind others | `position`: 1 for next |
-| `turn.steered` | The agent took a steered message into the running turn, which is the event's `turnId`. Recorded when the agent reads it, not when it is accepted. | `{}` |
+| `turn.steered` | The agent took a steered message into the running turn, which is the event's `turnId`. Recorded when the agent reads it, not when it is accepted. | `messageSeq`: the `seq` of the message's `message.received` |
 | `turn.started` | The agent began the turn | `model`, `effort`, `mode`, `trigger`, `subagentId`: as on the [Turn](/api/reference/objects#turn) |
 | `turn.status_changed` | The turn moved to a status that has no event of its own, such as `cancelling` | `from`, `to` |
 | `turn.completed` | The turn finished | `text`: the agent's last message, `durationMs`, `silent`: `true` when the agent chose not to reply, and `text` is `null` |
@@ -85,7 +85,7 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 
 | Type | Recorded | When | `data` |
 | --- | --- | --- | --- |
-| `tool.preparing` | No | The agent is still writing a call's input, such as the content of a file. Up to 4 a second per call. | `callId`, `name`, `subagentId`, `path`: the file, when known; `description`: the command's description, when known; `lines`: lines of input written so far |
+| `tool.preparing` | No | The agent is still writing a call's input, such as the content of a file. Up to 4 a second per call. | `callId`, `toolName`, `subagentId`, `path`: the file, when known; `description`: the command's description, when known; `lines`: lines of input written so far |
 | `tool.started` | Yes | The agent called a tool | `toolName`, `callId`, `parentCallId`, `subagentId`, `title`, `input`, `inputTruncated` |
 | `tool.delta` | No | A running tool produced output, for harnesses that stream it. Claude Code does not: a command's output arrives with `tool.completed`. | `callId`, `text` |
 | `tool.completed` | Yes | The tool returned | `toolName`, `callId`, `subagentId`, `title`, `output`, `outputTruncated`, `fileChanges`, `durationMs` |

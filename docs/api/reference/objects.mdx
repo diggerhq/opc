@@ -48,7 +48,7 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
 | `archived` | boolean | Archived sessions are left out of lists unless asked for. Set with [`PATCH`](/api/http/sessions#update-a-session). Any new message un-archives the session. |
 | `owner` | [Person](#person) | Who started the session. The agent acts as this person. |
 | `origin` | object | Where the session started. `type` is `slack`, `opc`, `dashboard` or `api`, the same values as [`actor.via`](#actor). `client` is the creating client's name and version, from its `User-Agent`, or `null`. `slack` is `{ teamId, channelId, channelName, threadTs, url }` for sessions started in Slack, else `null`. The `type` `session` is reserved for sessions another session starts, which will also carry `origin.parent`: `{ sessionId, callId }`. |
-| `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now |
+| `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now. `model` and `effort` are `null` until the session's writer reports them. |
 | `metadata` | object | Your own string keys and string values, `{}` when none. At most 20 keys; keys up to 40 characters, values up to 500. Set on create and with `PATCH`. Filter lists with `metadata[key]=value`. |
 | `activeTurnId` | string or null | The running turn |
 | `queued` | array of [Turn](#turn) | Turns waiting to run, in the order they will run |
@@ -61,8 +61,8 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
 | `logEpoch` | integer | The log's epoch, from `1`. It changes only when a computer is lost mid-turn and the server records the recovery. See [Client libraries](/api/reference/clients#writing-your-own). |
 | `epochStartSeq` | integer | The first `seq` recorded in `logEpoch` |
 | `createdAt`, `lastActiveAt` | string | Creation, and the newest event |
-| `syncedAt` | string | When the server last heard from the session's writer on the computer. When the computer is not running and `syncedAt` is old, show the session as possibly stale. |
-| `urls` | object | `dashboard`: the session on the dashboard. A Slack session's thread is `origin.slack.url`. |
+| `syncedAt` | string or null | `null` over the WebSocket, where the writer itself answers. Over HTTP, when the server last heard from the session's writer on the computer. When the computer is not running and `syncedAt` is old, show the session as possibly stale. |
+| `urls` | object | `dashboard`: the session on the dashboard, or `null` over the WebSocket, where the writer does not know it. A Slack session's thread is `origin.slack.url`. |
 
 Lists and `GET /sessions/{id}` return the identical object. A session's [capabilities](#capabilities) are read separately.
 
@@ -190,7 +190,7 @@ An ask closes as `interrupted` when its turn is interrupted, including by an exp
 
 For a plan in `plan` mode, `toolName` is `ExitPlanMode` and `input.plan` is the plan.
 
-Answer: `{ "decision": "allow" | "deny" | "always", "message": "optional, read by the agent", "mode": "optional, plans only" }`. Allowing a plan switches the session to `mode`, such as `acceptEdits`, or to `default` without one.
+Answer: `{ "decision": "allow" | "deny" | "always", "message": "optional, read by the agent", "mode": "optional, plans only" }`. Allowing a plan, with `decision: "allow"` only, switches the session to `mode` (`default`, `acceptEdits`, `auto` or `bypassPermissions`), or to `default` without one.
 
 ### Question
 
@@ -228,6 +228,10 @@ Answer: `{ "answers": [{ "questionId": "q1", "choices": ["Make the test wait for
 | `name` | The secret the agent needs |
 | `purpose` | Why, in the agent's words |
 | `file` | `true` when the agent wants the value as a file |
+
+<Note>
+Secret requests are not available yet: the agent cannot open one, and the [secrets routes](/api/http/secrets) answer `409 feature_unavailable`. This is how they will work.
+</Note>
 
 A secret request is answered by [setting the secret](/api/http/secrets), never through the ask: the value must not enter the session's history. Setting a secret with this `name` that reaches this session answers the ask, and `answer` becomes `{ "scope" }`, the scope it was set in, such as `{ "scope": "session" }`.
 
@@ -387,7 +391,7 @@ A session's capabilities are not on the Session object. Read them with [`GET /se
 | Field | Meaning |
 | --- | --- |
 | `models` | Models this session may use, as your organization allows. `efforts` lists the levels each accepts. |
-| `modes` | Permission modes this session may use. `bypassPermissions` appears only when your organization allows it. |
+| `modes` | Permission modes this session may use |
 | `features` | What this session supports. A client hides what is `false`. `steer`: messages mid-turn; `compact`; `terminal`: [terminals](/api/websocket/terminals); `workspace`: files; `reasoning`: the model's reasoning is streamed; `subagents`: the agent reports [subagents](#subagent), and tool events inside one carry `parentCallId` and `subagentId`. |
 
 Capabilities are per session, not per release: check them instead of the API version. They change only when your organization's settings change.

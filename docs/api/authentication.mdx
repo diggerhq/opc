@@ -68,20 +68,21 @@ A server can get tickets with its key and hand them to its own browser clients, 
 {
   "person": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "email": "igor@acme.dev" },
   "organization": { "id": "org_5n1p9w3e", "name": "acme" },
-  "credential": { "id": "key_8q2x7c1v9b4m", "name": "igor-mbp", "kind": "login", "scopes": ["sessions:read", "sessions:write", "asks:answer", "secrets:write", "terminals"], "expiresAt": null, "createdAt": "2026-10-25T18:02:11.000Z" },
-  "computer": { "status": "ready", "region": "iad" },
-  "defaults": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits" },
+  "credential": { "id": "key_8q2x7c1v9b4m", "name": "igor-mbp", "kind": "key", "scopes": ["sessions:read", "sessions:write", "asks:answer", "secrets:write", "terminals"], "expiresAt": null, "createdAt": "2026-10-25T18:02:11.000Z" },
+  "computer": { "status": "ready", "region": null, "wireUrl": "wss://wire.opencomputer.dev/v1" },
+  "defaults": { "model": "claude-opus-5-5", "effort": "high", "mode": "bypassPermissions" },
   "capabilities": { "…": "as for a session" }
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `credential.kind` | `login` for keys `opc login` created, `key` for keys created on the dashboard |
+| `credential.kind` | `key`. Keys `opc login` created are not told apart from dashboard keys yet. |
 | `credential.scopes` | What the key may do. See [Scopes](#scopes). |
 | `credential.expiresAt` | When the key stops working, or `null` |
 | `computer.status` | `ready`, `asleep` (it starts on first use, which takes seconds) or `not_set_up` |
-| `computer.region` | Where the computer runs. Round trips are shortest close to it. |
+| `computer.region` | Where the computer runs, or `null` when not known. Round trips are shortest close to it. |
+| `computer.wireUrl` | The WebSocket URL to [connect](/api/websocket/connect) to |
 | `defaults` | The settings a new session gets when the request names none |
 | `capabilities` | What a new session would support: the [same object](/api/reference/objects#capabilities) a [session's capabilities](/api/http/sessions#get-a-sessions-capabilities) route returns |
 
