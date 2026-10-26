@@ -1229,7 +1229,11 @@ impl<'a> App<'a> {
                 self.call("sessions.compact", p, None);
             }
             Cmd::Allowed => self.m.note("/allowed is not available yet: the API has no route for a session's allowed rules"),
-            Cmd::Diff { .. } => self.m.note("/diff is not available yet: the API has no workspace diff route"),
+            Cmd::Diff { stat } => {
+                // `opc diff`: the workspace's git diff, through $PAGER.
+                let a = crate::cli::DiffArgs { id: None, session: crate::cli::SessionOpt { session: Some(id) }, stat };
+                self.hand_over_async(|ctx| Box::pin(async move { crate::cmd::manage::diff(ctx, a).await.map(|_| ()) })).await;
+            }
             Cmd::Push { dir, to } => {
                 if self.m.read_only {
                     self.m.error("read-only: cannot push from this terminal");
