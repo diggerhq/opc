@@ -15,12 +15,15 @@ use bytes::Bytes;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 /// Terminal frames carry at most 64 KiB, the channel included.
 const MAX_INPUT_CHUNK: usize = 32 * 1024;
 /// Input over 1 MiB a second per terminal is dropped by the server.
 const INPUT_RATE: usize = 1 << 20;
+/// A size is sent once it has held this long, so dragging a window's edge
+/// sends one `terminals.resize`, not one per step.
+const RESIZE_SETTLE: Duration = Duration::from_millis(50);
 
 pub async fn run(ctx: &Ctx, a: ShellArgs) -> Result<i32> {
     let target = resolve::operand(a.id.as_deref(), a.session.session.as_deref())?;
@@ -242,6 +245,32 @@ impl Resizes {
     }
 }
 
+/// Sends each size the terminal settles at ([`RESIZE_SETTLE`]) and that
+/// differs from the last one sent (at first, `opened`), one request at a
+/// time, so the shell ends at the last size and not at whichever request
+/// landed last.
+async fn send_resizes<F, Fut>(mut sizes: watch::Receiver<(u16, u16)>, opened: (u16, u16), mut send: F)
+where
+    F: FnMut((u16, u16)) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let mut sent = opened;
+    while sizes.changed().await.is_ok() {
+        loop {
+            match tokio::time::timeout(RESIZE_SETTLE, sizes.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return,
+                Err(_) => break,
+            }
+        }
+        let size = *sizes.borrow_and_update();
+        if size != sent {
+            send(size).await;
+            sent = size;
+        }
+    }
+}
+
 fn write_all(mut w: impl Write, data: &[u8]) -> std::io::Result<()> {
     w.write_all(data)?;
     w.flush()
@@ -295,6 +324,19 @@ async fn session(
     }
     let _reader = Abort(reader);
     let mut resizes = Resizes::new(tty);
+    let opened = size.unwrap_or((80, 24));
+    let (size_tx, size_rx) = watch::channel(opened);
+    let _resizer = Abort(tty.then(|| {
+        let w = wire.clone();
+        let id = terminal_id.clone();
+        tokio::spawn(send_resizes(size_rx, opened, move |(cols, rows)| {
+            let w = w.clone();
+            let id = id.clone();
+            async move {
+                let _ = w.call("terminals.resize", json!({ "terminalId": id, "cols": cols, "rows": rows })).await;
+            }
+        }))
+    }));
     let mut input_open = true;
     let close = |wire: &WireHandle| {
         let w = wire.clone();
@@ -337,12 +379,8 @@ async fn session(
                     continue;
                 }
                 _ = resizes.next() => {
-                    if let Ok((cols, rows)) = crossterm::terminal::size() {
-                        let w = wire.clone();
-                        let id = terminal_id.clone();
-                        tokio::spawn(async move {
-                            let _ = w.call("terminals.resize", json!({ "terminalId": id, "cols": cols, "rows": rows })).await;
-                        });
+                    if let Ok(size) = crossterm::terminal::size() {
+                        size_tx.send_replace(size);
                     }
                     continue;
                 }
@@ -404,6 +442,44 @@ mod tests {
         assert_eq!(p["command"], "ls");
         let p = open_params("cs_x", Some("tar -c q3"), None, Some("xterm".into()));
         assert_eq!(p, json!({"sessionId": "cs_x", "tty": false, "command": "tar -c q3"}));
+    }
+
+    /// Sizes sent to the fake `terminals.resize`, at paused (fake) time.
+    async fn resizes_for(steps: &[(u64, (u16, u16))]) -> Vec<(u16, u16)> {
+        let (tx, rx) = watch::channel((80, 24));
+        let (out_tx, mut out) = mpsc::unbounded_channel();
+        let task = tokio::spawn(send_resizes(rx, (80, 24), move |size| {
+            let out_tx = out_tx.clone();
+            async move {
+                let _ = out_tx.send(size);
+                // A slow server: later sizes wait for this answer.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }));
+        for (after_ms, size) in steps {
+            tokio::time::sleep(Duration::from_millis(*after_ms)).await;
+            tx.send_replace(*size);
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        drop(tx);
+        task.await.unwrap();
+        let mut got = Vec::new();
+        while let Ok(s) = out.try_recv() {
+            got.push(s);
+        }
+        got
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn resizes_coalesce_to_the_settled_size() {
+        // A drag: a step every 10 ms, then still.
+        let drag: Vec<(u64, (u16, u16))> = (0..40).map(|i| (10, (81 + i, 24))).collect();
+        assert_eq!(resizes_for(&drag).await, vec![(120, 24)]);
+        // Two drags apart: two sends. Back to the size last sent: none.
+        assert_eq!(resizes_for(&[(0, (100, 30)), (500, (90, 20))]).await, vec![(100, 30), (90, 20)]);
+        assert_eq!(resizes_for(&[(0, (100, 30)), (10, (80, 24))]).await, Vec::<(u16, u16)>::new());
+        // Sizes that settle while a resize is in flight: the last one follows it.
+        assert_eq!(resizes_for(&[(0, (100, 30)), (100, (110, 30)), (60, (120, 30))]).await, vec![(100, 30), (120, 30)]);
     }
 
     #[test]
