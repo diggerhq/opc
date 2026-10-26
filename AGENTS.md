@@ -20,7 +20,6 @@ A Rust 2024 CLI (`opc`, one static binary) for an organization's OpenComputer Co
 What CI (`.github/workflows/ci.yml`) runs on every push to `main` and every PR, on Linux; macOS runs `cargo test --locked` only:
 
 ```bash
-cargo build --release --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ci/schema-check.sh                       # vendored schema == published one (skips while unpublished)

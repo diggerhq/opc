@@ -63,8 +63,8 @@ http = "1"
 
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1
+# Thin LTO: about a third of fat LTO's build time, same startup.
+lto = "thin"
 panic = "abort"
 strip = true
 
