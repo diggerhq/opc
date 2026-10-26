@@ -13,6 +13,14 @@ An ask never takes keys you meant for the prompt. It takes the keyboard only whe
 
 `Tab` moves to the ask and back. `Esc` on an ask returns to the prompt line; it neither interrupts the turn nor dismisses the ask. See [Keys](/terminal/keys#when-an-ask-is-open).
 
+A message you send from the prompt line while an ask is open declines the ask, and the agent reads the message as its instructions instead:
+
+```
+  ✗ declined · use the staging bucket, not prod
+```
+
+To leave the ask open and send the message after the turn, use [`/queue`](/terminal/slash-commands).
+
 ## Approvals
 
 The agent wants to do something your permission mode does not allow on its own.
@@ -40,7 +48,22 @@ Allowing with `a` confirms the rule in full:
 
 [`/allowed`](/terminal/slash-commands#allowed) lists the session's rules and revokes them.
 
-An approval in `plan` mode is the plan itself: the full plan is shown, and allowing it switches the session to `default` mode so the agent can start.
+## Plans
+
+An approval in `plan` mode is the plan itself. The full plan is shown, and allowing it switches the session out of `plan` mode so the agent can start.
+
+```
+  ? Plan ready · 4 steps
+    [y] approve   [A] approve, accept edits   [n] keep planning   [e] say what to change
+```
+
+| Key | Does |
+| --- | --- |
+| `y` | Approves the plan. The session switches to `default` mode, so each edit still asks. |
+| `A` | Approves the plan and switches the session to `acceptEdits` mode, so edits go ahead without asking |
+| `n` | Keeps the session in `plan` mode. The agent goes on planning. |
+| `e` | Keeps planning and opens a line for what to change, which the agent reads |
+| `Ctrl+O` | Shows the whole plan |
 
 ## Questions
 
@@ -113,7 +136,7 @@ If you answer at the same moment and lose, your answer is discarded and `opc` sh
 
 Interrupting the turn with `Esc` from the prompt line closes its open asks, marked `interrupted`. So does `/suspend`, which also cancels the turn.
 
-A session with an open ask is not suspended for being idle, so the ask can wait for an answer. After 24 hours with no answer, its open asks close as `expired` and the turn ends `cancelled`.
+An ask never expires. A session with an open ask is not suspended for being idle, so the ask waits for an answer as long as it takes.
 
 ## In scripts
 

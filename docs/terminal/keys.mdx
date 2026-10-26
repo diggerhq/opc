@@ -20,7 +20,7 @@ description: "Every key opc responds to in a session."
 
 To queue a message as its own turn after the running one, instead of steering, start it with `/queue`. It waits above the prompt as a dim `queued` line. `↑` on an empty prompt line takes the last queued message back into the prompt for editing, and it no longer runs. See [Slash commands](/terminal/slash-commands).
 
-Your message is drawn in the transcript the moment you press `Enter`, marked `sending`. The mark disappears when the computer has accepted it. A message sent into a running turn is marked `↳ read`, dimmed, once the agent has taken it into the turn. If the turn ends before the agent reads it, it runs as a new turn.
+Your message is drawn in the transcript the moment you press `Enter`, marked `sending`. The mark disappears when the computer has accepted it. A message sent into a running turn is marked `↳ read`, dimmed, when the agent takes it into the turn, from its `turn.steered` event. If the turn ends before the agent reads it, it runs as a new turn.
 
 If the connection is down, the message is marked `pending` and sent when the connection comes back, once: every message carries a key that makes a resend harmless. `Esc` takes pending messages back into the prompt line. A pending message meant to steer a turn that has ended by the time it is sent starts a new turn.
 
@@ -28,7 +28,7 @@ If the connection is down, the message is marked `pending` and sent when the con
 
 | Key | When | Does |
 | --- | --- | --- |
-| `Esc` | Something is open | Closes the innermost open thing: the completion menu, the `Ctrl+R` search, a chooser, the picker or the details view |
+| `Esc` | Something is open | Closes the innermost open thing: the completion menu, the `Ctrl+R` search, a chooser, the picker or a list such as `/subagents` |
 | `Esc` | Nothing is open | Interrupts the running turn, with all of its subagents, and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
 | `Ctrl+C` | The prompt line has text | Clears it |
 | `Ctrl+C` | A turn is running and the prompt line is empty | Interrupts the turn, as `Esc` does |
@@ -55,21 +55,21 @@ History is kept per machine, in `~/.opencomputer/opc/history`, across sessions. 
 
 | Key | Does |
 | --- | --- |
-| `Ctrl+O` | Opens the [details view](/terminal/session-screen#details): every step's full input and output, and the reasoning. `q` or `Esc` returns. |
-| `Ctrl+T` | Shows or hides the agent's reasoning from now on. Earlier reasoning is in the details view. |
+| `Ctrl+O` | Pipes the session's [details](/terminal/session-screen#details) through `$PAGER`: every step's full input and output, and the reasoning. Quit the pager to return. |
+| `Ctrl+T` | Shows or hides the agent's reasoning from now on. Earlier reasoning is in the details. |
 | `Ctrl+L` | Clears the screen and redraws the live area |
 | `?` on an empty prompt line | Shows this table |
 
-## In the subagents view
+## In the subagents list
 
-`/subagents` opens it. See [Subagents](/terminal/session-screen#subagents).
+`/subagents` shows it in the live area. See [Subagents](/terminal/session-screen#subagents).
 
 | Key | Does |
 | --- | --- |
 | `↑` `↓` | Selects a subagent |
-| `Enter` | Opens its result, or its live details while it runs. `q` or `Esc` returns to the list. |
+| `Enter` | Prints its result, or pipes its details so far through `$PAGER` while it runs |
 | `x` | Stops the selected subagent. `y` confirms. |
-| `Esc` | Closes the view |
+| `Esc` | Closes the list |
 
 ## When an ask is open
 
@@ -77,7 +77,7 @@ An ask never takes keys you meant for the prompt. It takes the keyboard only whe
 
 | Key | On an ask | Does |
 | --- | --- | --- |
-| `Tab` | Any | Moves between the ask and the prompt line. A message you write while an ask is open is held, and reaches the agent together with the answer. |
+| `Tab` | Any | Moves between the ask and the prompt line. A message you send while an ask is open declines the ask, and the agent reads it as its instructions. `/queue` sends it after the turn instead. |
 | `Esc` | Any | Returns to the prompt line. It does not interrupt the turn and does not dismiss the ask. |
 | `Ctrl+D` | A question | Dismisses it. The agent is told nobody answered and decides how to go on. |
 

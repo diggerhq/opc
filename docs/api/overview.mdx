@@ -103,7 +103,7 @@ Where this API differs, it is on purpose, because a session that people watch ke
 | Here | Serverless | Why |
 | --- | --- | --- |
 | [Asks](/api/http/asks): `approval`, `question` and `secret`, one object, answered once | `question.*` events, approvals as tool-level decisions | A client renders every kind of "the agent needs you" the same way, and the first answer from any client wins |
-| Sending returns `{ turn, delivery, duplicate, seq }`: the Turn itself, and what happened to the message, with a turn for held and steered messages too | `{ turnId, status, duplicate }`, and `status: "held"` with no turn | The object every other route returns, so a client has the turn's author, input and times without a second request, and shows at once what happened to its message |
+| Sending returns `{ turn, delivery, duplicate, seq }`: the Turn itself, and what happened to the message, with a turn for steered messages too | `{ turnId, status, duplicate }`, and no turn for a steered message | The object every other route returns, so a client has the turn's author, input and times without a second request, and shows at once what happened to its message |
 | `message.delta`, `reasoning.delta` and `tool.delta` carry a `blockId` or `callId`, unique in the session | Deltas are concatenated per turn | Blocks interleave with tool calls; a client cannot attach text to the right place without it |
 | `GET /events` pages carry `lastSeq` and `hasMore`, and wait for new events with `waitMs` | `{ events }` only | A client knows whether it is caught up without another request, and follows a session without polling |
 | Every write returns `seq`, and reads accept `minSeq` | No equivalent | A client reads its own write on any transport |

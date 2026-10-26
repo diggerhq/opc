@@ -20,15 +20,15 @@ A line that starts with `/` is a command to `opc`, not a message to the agent. `
 | `/pull <path> [dir]` | Copies a directory from the workspace to your machine |
 | `/diff [--stat]` | Shows the git diff of every repository in the workspace, through `$PAGER` |
 | `/shell` | Opens a shell in the workspace; `exit` returns here |
-| `/sessions` | Opens the session picker |
+| `/sessions` | Lists your sessions in the live area, to pick one to attach |
 | `/new` | Detaches and starts a new session |
 | `/detach` | Detaches. Same as `Ctrl+D`. |
 | `/suspend` | Suspends the session now, instead of after two idle hours |
 | `/archive` | Archives the session and detaches. Any new message un-archives it. |
 | `/web` | Opens the session on the dashboard |
 | `/copy [code]` | Copies the agent's last message, as markdown, to your clipboard. `/copy code` copies its last code block. Works over SSH and in tmux. |
-| `/details` | Opens the details view. Same as `Ctrl+O`. |
-| `/subagents` | Opens the [subagents view](/terminal/session-screen#subagents): running subagents and those that ended this session, their results, and stopping one |
+| `/details` | Pipes the session's details through `$PAGER`. Same as `Ctrl+O`. |
+| `/subagents [n]` | Lists [subagents](/terminal/session-screen#subagents) in the live area: running ones and those that ended this session, their results, and stopping one |
 | `/timing` | Prints the timings of this launch and the last turn |
 | `/id` | Prints the session's full id and its dashboard and Slack links |
 

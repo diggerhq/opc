@@ -33,8 +33,8 @@ The response is `202`, or `200` for a repeated `Idempotency-Key`:
 
 | Field | Meaning |
 | --- | --- |
-| `turn` | The [Turn](/api/reference/objects#turn) that carries the message, as it is now. For `steered` and `held`, the running turn the message joined, with the message in its `steering`, not a new one. |
-| `delivery` | What happened to the message: `started`, `queued`, `steered` or `held` |
+| `turn` | The [Turn](/api/reference/objects#turn) that carries the message, as it is now. For `steered`, the running turn the message joined, with the message in its `steering`, not a new one. |
+| `delivery` | What happened to the message: `started`, `queued` or `steered` |
 | `duplicate` | `true` when the key was already used for this request. Nothing new was sent, and `turn` is that turn as it is now. |
 | `seq` | The `seq` of the last event the send recorded. Pass it as `minSeq` to read your own write elsewhere. |
 
@@ -44,10 +44,9 @@ Every route that sends a message returns this shape: here, [creating a session](
 | --- | --- | --- |
 | `started` | Nothing was running. A new turn starts. | `message.received`, then `turn.started` |
 | `queued` | A new turn waits behind the running one | `message.received`, `turn.queued` |
-| `steered` | Delivered into the running turn. The agent reads it at its next step. | `message.received`, `turn.steered` |
-| `held` | An ask is open. Delivered into the turn when the last ask closes. | `message.received`, `message.held`, then `message.delivered` with `as: "steering"` |
+| `steered` | Delivered into the running turn. The agent reads it at its next step. If an ask was open, it declined it. | `message.received`, `ask.closed` for each declined ask, then `turn.steered` when the agent reads it |
 
-A steered or held message belongs to the running turn only once the agent reads it. If that turn ends first, the message starts a new turn at once, with a new id, recorded as `turn.queued` or `turn.started`. Follow the session's events, not only the turn in the response, to see where it ran. See [Steered and held messages](/api/model#steered-and-held-messages).
+A steered message belongs to the running turn only once the agent reads it. If that turn ends first, the message starts a new turn at once, with a new id, recorded as `turn.queued` or `turn.started`. Follow the session's events, not only the turn in the response, to see where it ran. See [Steered messages](/api/model#steered-messages).
 
 The response returns once the message is in the log. It does not wait for the agent. Follow the turn in the [events](/api/reference/events), or [wait for it](#get-a-turn).
 
@@ -56,7 +55,7 @@ The response returns once the message is in the log. It does not wait for the ag
 | `ifBusy` | Nothing running | A turn running | An ask open |
 | --- | --- | --- | --- |
 | `queue` | `started` | `queued` | `queued` |
-| `steer` | `started` | `steered` | `held` |
+| `steer` | `started` | `steered` | `steered`: the open asks close as `declined`, and the agent reads the message as its instructions |
 | `interrupt` | `started` | Stops the running turn and every queued one, then `started` | Same: the ask closes as `interrupted` |
 
 The API defaults to `queue`, so that two programs sending at once never change each other's turns. `opc`'s interactive screen, Slack and the dashboard send with `steer`, because a person typing while the agent works means to redirect it.

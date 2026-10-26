@@ -40,7 +40,7 @@ GET /sessions/{id}/asks
 
 | Query | Meaning |
 | --- | --- |
-| `status` | `open` (default), `answered`, `dismissed`, `interrupted`, `expired`, or `all` |
+| `status` | `open` (default), `answered`, `dismissed`, `declined`, `interrupted`, or `all` |
 | `limit`, `cursor` | As for every list. Default 20. |
 
 Returns `{ "asks": [Ask…], "nextCursor" }`, newest first.
@@ -71,8 +71,9 @@ The body depends on the ask's `kind`.
 | --- | --- |
 | `decision` | `allow`, `deny`, or `always`: allow this call and the ones matching `approval.alwaysAllows`, such as `Bash(terraform plan *)`, for the rest of the session. `always` is refused with `400 invalid_answer` when `alwaysAllows` is `null`. |
 | `message` | Optional, up to 2,000 characters. The agent reads it with the decision. Useful with `deny` to say what to do instead. |
+| `mode` | Optional, for a plan only: the permission mode to switch to when allowing it, such as `acceptEdits`. Default `default`. |
 
-Allowing a plan, an approval whose `approval.toolName` is `ExitPlanMode`, also switches the session from `plan` mode to `default`, so the agent can carry it out. The `session.updated` event records the change.
+Allowing a plan, an approval whose `approval.toolName` is `ExitPlanMode`, also switches the session out of `plan` mode, to `mode` or to `default`, so the agent can carry it out. The `session.updated` event records the change.
 
 **Question.**
 
@@ -95,7 +96,7 @@ The response is `200 { "ask": Ask, "seq" }`, the ask closed, with `closedBy` and
 | `400` | `invalid_answer` | The answer does not fit the ask: a missing question, an unknown choice, too many choices. `error.field` says where, such as `answers[0].choices`. |
 | `400` | `answer_with_secret` | The ask is a secret ask |
 | `404` | `ask_not_found` | |
-| `409` | `ask_closed` | It closed before this answer: someone else answered or dismissed it, its turn was interrupted, or it expired. `error.ask` is the ask as it closed. |
+| `409` | `ask_closed` | It closed before this answer: someone else answered, dismissed or declined it, or its turn was interrupted. `error.ask` is the ask as it closed. |
 
 Answers are idempotent without a key: answering an ask again with the same answer, as the same person, returns `200` with the ask. Any later different answer, or one from someone else, gets `409 ask_closed`.
 
@@ -111,4 +112,4 @@ Returns `200 { "ask": Ask, "seq" }`. Errors as for answering.
 
 ## Asks and suspension
 
-An ask is never open on a suspended session. A session with an open ask keeps its agent process for up to 24 hours, so an answer carries the turn on at once. After 24 hours its open asks close as `expired` and the turn is cancelled with reason `expired`. Suspending the session explicitly closes them as `interrupted`. Either way, `ask.closed` records it, and an answer after that gets `409 ask_closed`. See [Asks and suspension](/api/model#asks-and-suspension).
+An ask is never open on a suspended session. An ask never expires: a session with an open ask keeps its agent process for as long as the ask is open, so an answer carries the turn on at once. Suspending the session explicitly closes its asks as `interrupted`. Either way, `ask.closed` records it, and an answer after that gets `409 ask_closed`. See [Asks and suspension](/api/model#asks-and-suspension).

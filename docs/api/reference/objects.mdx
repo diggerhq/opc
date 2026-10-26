@@ -124,13 +124,13 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
 | `endedAt` | string or null | When it ended |
 | `text` | string or null | The agent's last message, once the turn completed |
 | `error` | object or null | A [turn failure](/api/reference/errors#turn-failures) when `failed` |
-| `reason` | string or null | When `cancelled`: `interrupted` when it was running or queued when an interrupt came, `withdrawn` when it was queued and someone [cancelled it](/api/http/turns#cancel-a-queued-turn), `expired` when an ask of the turn stayed open for 24 hours |
+| `reason` | string or null | When `cancelled`: `interrupted` when it was running or queued when an interrupt came, `withdrawn` when it was queued and someone [cancelled it](/api/http/turns#cancel-a-queued-turn) |
 | `forced` | boolean or null | When `cancelled`: `true` if the agent process had to be restarted to stop it |
 | `usage` | object or null | When ended: `{ inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheWriteTokens, costUsd }`, summed over the turn's model calls. `costUsd` is a decimal string, such as `"0.41"`, and `null` when your organization uses its own model account. |
 
 A message sent with `steer` while a turn runs joins that turn: it has no turn of its own, appears in the running turn's `steering`, and the send's `turn` is the running turn. A message the running turn ends without reading starts a new turn at once, with a new id.
 
-A message held while an ask is open is also reported with the running turn. It is delivered into that turn as steering when the last ask closes, as `message.delivered` with `as: "steering"`. If the turn ends first, the held message starts a new turn, with `turn.queued` or `turn.started` and a new id.
+A message sent with `steer` while an ask is open joins the running turn the same way, and [declines](/api/model#messages-while-an-ask-is-open) the open asks.
 
 ## Ask
 
@@ -157,18 +157,18 @@ A message held while an ask is open is also reported with the running turn. It i
 | `sessionId` | string | The session |
 | `turnId` | string | The turn that raised it |
 | `kind` | string | `approval`, `question` or `secret` |
-| `status` | string | `open`, `answered`, `dismissed`, `interrupted` or `expired` |
+| `status` | string | `open`, `answered`, `dismissed`, `declined` or `interrupted` |
 | `createdAt` | string | |
 | `closedAt` | string or null | |
-| `closedBy` | [Actor](#actor) or null | Who answered or dismissed it. `null` when `interrupted` or `expired`. |
-| `answer` | object or null | The answer, in the shape for its kind |
+| `closedBy` | [Actor](#actor) or null | Who answered, dismissed or declined it. `null` when `interrupted`. |
+| `answer` | object or null | The answer, in the shape for its kind. When `declined`: `{ message, messageSeq }`, the message that declined it and the `seq` of its `message.received`. |
 | `approval` | object or null | When `kind` is `approval`. See [Approval](#approval). |
 | `question` | object or null | When `kind` is `question`. See [Question](#question). |
 | `secret` | object or null | When `kind` is `secret`. See [Secret request](#secret-request). |
 
 The fields of each kind are in the object named after it. The other two are `null`.
 
-An ask closes as `interrupted` when its turn is interrupted, including by an explicit [suspend](/api/http/control#suspend). A session with an open ask is not suspended for being idle for 24 hours. After that, its open asks close as `expired`, and the turn ends `cancelled` with `reason: "expired"`.
+An ask closes as `interrupted` when its turn is interrupted, including by an explicit [suspend](/api/http/control#suspend), and as `declined` when someone sends a message with `steer` while it is open. It never expires: a session with an open ask is not suspended for being idle, and the ask stays open until someone closes it.
 
 ### Approval
 
@@ -190,7 +190,7 @@ An ask closes as `interrupted` when its turn is interrupted, including by an exp
 
 For a plan in `plan` mode, `toolName` is `ExitPlanMode` and `input.plan` is the plan.
 
-Answer: `{ "decision": "allow" | "deny" | "always", "message": "optional, read by the agent" }`.
+Answer: `{ "decision": "allow" | "deny" | "always", "message": "optional, read by the agent", "mode": "optional, plans only" }`. Allowing a plan switches the session to `mode`, such as `acceptEdits`, or to `default` without one.
 
 ### Question
 

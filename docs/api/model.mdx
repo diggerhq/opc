@@ -28,12 +28,12 @@ If `logEpoch` differs from the one you stored, discard what you applied at or af
 
 ### Deltas are not in the log
 
-While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta`, and a subagent's progress as `subagent.progress`, sent only over a WebSocket that asked for them, as `delta` notifications rather than `event`. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew.
+While the agent writes, its text also streams as **deltas**: `message.delta`, `reasoning.delta` and `tool.delta`, with `tool.preparing` while a call's input is being written, `session.compacting` when a compaction starts, and a subagent's progress as `subagent.progress`, sent only over a WebSocket that asked for them, as `delta` notifications rather than `event`. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed`, `reasoning.completed` or `tool.completed` event, which replaces whatever deltas you drew.
 
 - Text and reasoning deltas are tied to their block by `blockId`, tool output by `callId`. Both are unique in the session, not only in the turn.
 - A delta never arrives after its block's completed event. Ignore any delta for a `blockId` or `callId` you have already seen complete.
 
-`subagent.progress` has no completed event: its latest values are folded into the [Subagent](/api/reference/objects#subagent) on every read.
+`tool.preparing` is followed by the call's `tool.started`, and `session.compacting` by `session.compacted`. `subagent.progress` has no completed event: its latest values are folded into the [Subagent](/api/reference/objects#subagent) on every read.
 
 A client that misses deltas, because it connected late, reconnected or was too slow, loses nothing but the preview. See [Flow control](/api/websocket/flow-control).
 
@@ -46,7 +46,6 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | `idle` | `running` | A message arrives, or the agent starts a turn because a background subagent ended |
 | `running` | `waiting` | The agent raises an ask |
 | `waiting` | `running` | Every open ask closed |
-| `waiting` | `idle` | The asks were open for 24 hours and expired, and the turn was cancelled. See [Asks and suspension](#asks-and-suspension). |
 | `running` | `idle` | The last turn ended and nothing is queued |
 | `idle` | `suspended` | Two hours without activity and no subagent running, or a [suspend](/api/http/control#suspend) |
 | `suspended` | `starting` | A message, an answer, or a [resume](/api/http/control#resume) |
@@ -55,7 +54,7 @@ A client that misses deltas, because it connected late, reconnected or was too s
 | --- | --- | --- |
 | `starting` | Starting, or resuming from `suspended` | Is recorded at once, then runs |
 | `running` | Working on a turn | Queues, steers or interrupts, by [`ifBusy`](/api/http/turns#if-a-turn-is-running) |
-| `waiting` | Blocked on an open ask. Kept running while the ask is open, for up to 24 hours. | Is [held](#messages-while-an-ask-is-open) until the ask closes, unless sent with `interrupt` |
+| `waiting` | Blocked on an open ask. Kept running while the ask is open, however long that is. | With `steer`, [declines the ask](#messages-while-an-ask-is-open) and reaches the agent as its instructions. With `queue`, waits behind the turn. With `interrupt`, interrupts it. |
 | `idle` | Ready | Runs at once |
 | `suspended` | Stopped. Its memory is freed, its workspace and conversation are kept. | Is recorded at once, resumes the session, then runs |
 
@@ -73,13 +72,13 @@ queued ──▶ running ──▶ completed
 ```
 
 - Turns run one at a time, in the order they were queued.
-- A turn that is `cancelled` has a `reason`. `interrupted`: it was running or queued when an [interrupt](/api/http/control#interrupt) came. `withdrawn`: it was queued, and someone [cancelled it](/api/http/turns#cancel-a-queued-turn) before it ran. `expired`: its asks were open for 24 hours. A running turn is `cancelling` from the interrupt until the agent has stopped, usually under a second.
+- A turn that is `cancelled` has a `reason`. `interrupted`: it was running or queued when an [interrupt](/api/http/control#interrupt) came. `withdrawn`: it was queued, and someone [cancelled it](/api/http/turns#cancel-a-queued-turn) before it ran. A running turn is `cancelling` from the interrupt until the agent has stopped, usually under a second.
 - A turn that `failed` has an [error](/api/reference/errors#turn-failures). The session stays usable: send another message.
 - A message sent with `interrupt` records `message.received` with `interruptedTurnIds`, the turns it stopped, before their `turn.cancelled` events.
 
-### Steered and held messages
+### Steered messages
 
-A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response's `turn` is that running turn, and `delivery` says what happened.
+A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response's `turn` is that running turn, and `delivery` says what happened. `turn.steered` is recorded when the agent takes the message in, not when it is accepted, so a client can mark it read.
 
 A message joins a turn only if the turn reads it. If the turn ends before the agent took the message in, the message starts a new turn at once, recorded as `turn.queued` or `turn.started` with a new turn id.
 
@@ -91,20 +90,22 @@ An **ask** blocks the turn that raised it until it closes. It closes once, as on
 | --- | --- |
 | `answered` | Someone answered it. For a secret ask, someone set the secret. |
 | `dismissed` | Someone closed it without an answer. The agent is told and decides how to go on. |
+| `declined` | Someone sent a message with `steer` while it was open. The agent reads the message as its instructions instead of an answer. |
 | `interrupted` | Its turn was interrupted, or the session was [suspended](/api/http/control#suspend) |
-| `expired` | It was open for 24 hours |
+
+An ask never expires, and never cancels its turn on its own. It stays open until one of these closes it.
 
 The first close wins. Answering again with the same answer, as the same person, returns `200` with the ask. Any later *different* answer, or one from someone else, and any dismissal after it closed, gets `409 ask_closed`, with the ask as it closed so the client can show who answered. An ask's close is recorded as `ask.closed`, with the ask as it closed.
 
 ### Asks and suspension
 
-A session with an open ask is not suspended for being idle. It keeps its agent process for up to 24 hours, so the turn carries on the moment someone answers. After 24 hours its open asks close as `expired`, the turn ends `cancelled` with `reason: "expired"`, and the session is `idle`. An explicit [suspend](/api/http/control#suspend) closes open asks as `interrupted` and cancels the turn. An ask is never open on a suspended session.
+A session with an open ask is not suspended for being idle. It keeps its agent process for as long as the ask is open, so the turn carries on the moment someone answers. An explicit [suspend](/api/http/control#suspend) closes open asks as `interrupted` and cancels the turn. An ask is never open on a suspended session.
 
 ### Messages while an ask is open
 
-A message sent while an ask is open is held, not steered: the agent cannot read anything until the ask closes. The send response has `delivery: "held"`, and its `turn` is the running turn. When the last open ask closes, held messages are delivered into the turn in the order they arrived, right after the answer, each recorded as `message.delivered` with `as: "steering"`. If the turn ends first, for example because the answer was a denial the agent stopped on, the held messages start a new turn, with a new turn id.
+A message sent with `steer` while an ask is open declines every open ask and reaches the agent as its instructions: a person who types "no, do X instead" while an approval waits means exactly that. The asks close as `declined`, with the message in their `answer`, and the message joins the running turn: `delivery` is `steered`, `message.received` lists the asks in `declinedAskIds`, and `turn.steered` follows when the agent takes it in. For an approval, the agent is told the call was denied, with the message as the reason.
 
-A message sent with `interrupt` is not held. It interrupts the turn, which closes the ask, and runs.
+A message sent with `queue` waits behind the turn, and the ask stays open. A message sent with `interrupt` interrupts the turn, which closes the ask as `interrupted`, and runs.
 
 ## Subagents
 

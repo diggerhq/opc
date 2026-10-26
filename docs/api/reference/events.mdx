@@ -50,24 +50,23 @@ Deltas reach WebSocket clients that attached with `deltas: true`, and nowhere el
 | `session.created` | Always the first event | `title`, `origin`, `settings` |
 | `session.status_changed` | The [status](/api/model#sessions) changed | `from`, `to` |
 | `session.updated` | Someone changed the title, settings, `archived` or `metadata`, or allowing a plan changed the mode | `changes`: `{ field: { from, to } }` for each changed field |
+| `session.compacting` | A compaction started. A delta, not recorded, sent when the agent reports it. | `{}` |
 | `session.compacted` | The conversation was summarized | `beforeTokens`, `afterTokens`, `auto`: `true` when the agent compacted on its own |
 
 ## Messages and turns
 
 | Type | When | `data` |
 | --- | --- | --- |
-| `message.received` | A message was accepted. Recorded before anything runs. | `input`, `ifBusy`, `delivery`, `interruptedTurnIds`: the turns this message interrupted, empty unless it was sent with `interrupt` |
-| `message.held` | The message waits for open asks to close | `askIds` |
-| `message.delivered` | A held message reached the agent | `as`: `steering` |
+| `message.received` | A message was accepted. Recorded before anything runs. | `input`, `ifBusy`, `delivery`, `interruptedTurnIds`: the turns this message interrupted, empty unless it was sent with `interrupt`; `declinedAskIds`: the asks it [declined](/api/model#messages-while-an-ask-is-open), empty unless it was steered while an ask was open |
 | `turn.queued` | A new turn waits behind others | `position`: 1 for next |
-| `turn.steered` | The message joined the running turn, which is the event's `turnId` | `{}` |
+| `turn.steered` | The agent took a steered message into the running turn, which is the event's `turnId`. Recorded when the agent reads it, not when it is accepted. | `{}` |
 | `turn.started` | The agent began the turn | `model`, `effort`, `mode`, `trigger`, `subagentId`: as on the [Turn](/api/reference/objects#turn) |
 | `turn.status_changed` | The turn moved to a status that has no event of its own, such as `cancelling` | `from`, `to` |
-| `turn.completed` | The turn finished | `text`: the agent's last message, `durationMs` |
+| `turn.completed` | The turn finished | `text`: the agent's last message, `durationMs`, `silent`: `true` when the agent chose not to reply, and `text` is `null` |
 | `turn.failed` | The turn stopped with an error | `error`: a [turn failure](/api/reference/errors#turn-failures) |
-| `turn.cancelled` | The turn was interrupted, was queued when an interrupt came, was cancelled while queued, or its ask expired | `reason`: `interrupted`, `withdrawn` or `expired`; `forced`: `true` when the agent process had to be restarted to stop it; `input`: the message, so a client can offer it again |
+| `turn.cancelled` | The turn was interrupted, was queued when an interrupt came, or was cancelled while queued | `reason`: `interrupted` or `withdrawn`; `forced`: `true` when the agent process had to be restarted to stop it; `input`: the message, so a client can offer it again |
 
-`message.received` is in the turn it started or joined: for `steered` and `held` messages, the running turn's `turnId`. A held message whose turn ends before it is delivered starts a new turn, with `turn.queued` or `turn.started` under a new `turnId`.
+`message.received` is in the turn it started or joined: for a `steered` message, the running turn's `turnId`. A steered message whose turn ends before the agent reads it starts a new turn, with `turn.queued` or `turn.started` under a new `turnId`.
 
 A turn the agent starts because a background subagent ended has no `message.received`. It begins with `turn.queued` or `turn.started`, with `trigger: "subagent"` and the `subagentId`, right after that subagent's `subagent.ended`.
 
@@ -86,8 +85,9 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 
 | Type | Recorded | When | `data` |
 | --- | --- | --- | --- |
+| `tool.preparing` | No | The agent is still writing a call's input, such as the content of a file. Up to 4 a second per call. | `callId`, `name`, `subagentId`, `path`: the file, when known; `description`: the command's description, when known; `lines`: lines of input written so far |
 | `tool.started` | Yes | The agent called a tool | `toolName`, `callId`, `parentCallId`, `subagentId`, `title`, `input`, `inputTruncated` |
-| `tool.delta` | No | A running tool produced output, such as a command's terminal output | `callId`, `text` |
+| `tool.delta` | No | A running tool produced output, for harnesses that stream it. Claude Code does not: a command's output arrives with `tool.completed`. | `callId`, `text` |
 | `tool.completed` | Yes | The tool returned | `toolName`, `callId`, `subagentId`, `title`, `output`, `outputTruncated`, `fileChanges`, `durationMs` |
 | `tool.failed` | Yes | The tool returned an error, or its turn ended before it did | `toolName`, `callId`, `subagentId`, `title`, `message`, `settledBy` |
 
@@ -98,6 +98,7 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 - `input` and `output` are JSON values, never JSON text. Each is cut at 64 KiB. `inputTruncated` and `outputTruncated` are `true` when it was, else `false`.
 - `callId` is the harness's id for the call, such as `toolu_01AbC`. Treat it as an opaque string.
 - Every `tool.started` is followed by exactly one `tool.completed` or `tool.failed` with its `callId`, before the turn's last event. When a turn ends with a call still open, `tool.failed` is recorded with `settledBy` naming the turn's ending event, such as `turn.cancelled`. Otherwise `settledBy` is `null`.
+- `tool.preparing` comes before the call's `tool.started`, with the same `callId`, while the model is still writing a long input. A client can show `writing… 212 lines` instead of nothing. Ignore one that arrives after `tool.started`.
 - A `tool.delta` that arrives after its call's `tool.completed` or `tool.failed` is stale. Ignore it.
 
 ## Asks
@@ -105,7 +106,7 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 | Type | When | `data` |
 | --- | --- | --- |
 | `ask.opened` | The agent raised an ask | `ask`: the [Ask](/api/reference/objects#ask) |
-| `ask.closed` | It was answered, dismissed, interrupted or expired | `ask`: the Ask as it closed. The `actor` is who answered or dismissed it. |
+| `ask.closed` | It was answered, dismissed, declined or interrupted | `ask`: the Ask as it closed. The `actor` is who answered, dismissed or declined it. |
 
 A secret request's `answer` names the scope the secret was set in, never its value.
 

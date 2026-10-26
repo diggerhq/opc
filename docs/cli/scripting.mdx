@@ -28,7 +28,7 @@ To continue an existing session instead of creating one, pass `--session` (`-s`)
 opc -p -s cs_7f3a9k2m4q8r1t6v "now open the pull request"
 ```
 
-With `-s`, the message is queued behind a running turn, as `opc send` does, so two programs never change each other's turns. `--steer` or `--interrupt` changes that. `opc -p` reports on the turn the message ended up in: for a message steered into a running turn, or held while an ask is open, that is the running turn.
+With `-s`, the message is queued behind a running turn, as `opc send` does, so two programs never change each other's turns. `--steer` or `--interrupt` changes that. `opc -p` reports on the turn the message ended up in: for a message steered into a running turn, including one that declined an open ask, that is the running turn.
 
 When standard input or standard output is not a terminal, `opc "message"` behaves like `opc -p "message"`, handle line included.
 

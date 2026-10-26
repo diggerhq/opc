@@ -35,7 +35,7 @@ To interrupt and send a new message in one request, [send it](/api/http/turns#se
 POST /sessions/{id}/compact
 ```
 
-Replaces the conversation so far with a summary, freeing context. The agent keeps working from the summary. `opc` runs it with `/compact`, and the agent compacts on its own when the context is nearly full.
+Replaces the conversation so far with a summary, freeing context. The agent keeps working from the summary. `opc` runs it with `/compact`, and the agent compacts on its own when the context is nearly full. A compaction can take tens of seconds: `session.compacting` marks its start and `session.compacted` its end.
 
 | Field | Meaning |
 | --- | --- |

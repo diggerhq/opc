@@ -65,7 +65,7 @@ Sometimes the agent needs a person before it can go on. It raises an **ask**, an
 
 Any member can answer an ask from any client. The first answer wins, and every other client shows who answered and where. See [Asks](/terminal/asks).
 
-A session with an open ask is not suspended for being idle. If nobody answers within 24 hours, its open asks close as `expired` and the turn ends `cancelled`.
+An ask never expires: a session with an open ask is not suspended for being idle, and the ask waits for someone. A message you send while it is open declines it, and the agent reads the message as its instructions.
 
 ## Settings
 
