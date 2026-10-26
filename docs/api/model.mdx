@@ -1,0 +1,93 @@
+---
+title: "The model"
+description: "Sessions, turns, asks and events, and the rules that keep every client in agreement."
+---
+
+Read [Concepts](/concepts) first for what sessions, turns and asks are to a person. This page is the same model for a program: the states, the order of events and the guarantees.
+
+## A session is its event log
+
+Everything that happens in a session is appended to its **event log**, and each event gets the next `seq`: 1, 2, 3, with no gaps. The [session object](/api/reference/objects#session) is a snapshot of that log, and its `lastSeq` says how far the snapshot goes.
+
+So a client can always build an exact view in two steps:
+
+1. Read the session. It is correct as of `lastSeq`.
+2. Apply events with `seq` greater than `lastSeq`, from [`GET /events?after=`](/api/http/events) or a WebSocket [attach](/api/websocket/methods#attach).
+
+Events are never changed or removed. An event with a `seq` at or below one you applied is a repeat: skip it. That makes reconnecting safe: attach again with `after` set to the last `seq` you applied, and you get exactly what you missed.
+
+### Deltas are not in the log
+
+While the agent writes, its text also streams as **deltas**: `message.delta` and `reasoning.delta` events, sent only over a WebSocket that asked for them. Deltas have no `seq` and are not stored. They are a preview of a block whose complete text arrives in the matching `message.completed` or `reasoning.completed` event, which replaces whatever deltas you drew.
+
+A client that misses deltas, because it connected late, reconnected or was too slow, loses nothing but the preview. See [Flow control](/api/websocket/flow-control).
+
+## Sessions
+
+| From | To | When |
+| --- | --- | --- |
+| | `starting` | The session is created |
+| `starting` | `idle` or `running` | The agent is up. `running` if a message is waiting. |
+| `idle` | `running` | A message arrives |
+| `running` | `waiting` | The agent raises an ask |
+| `waiting` | `running` | Every open ask closed |
+| `running` | `idle` | The last turn ended and nothing is queued |
+| `idle` | `suspended` | Two hours without activity, or a [suspend](/api/http/control#suspend) |
+| `waiting` | `suspended` | Two hours without activity. The ask stays open, and the status stays `waiting`. |
+| `suspended` | `starting` | A message, an answer, or a [resume](/api/http/control#resume) |
+
+| Status | The agent process | A message sent now |
+| --- | --- | --- |
+| `starting` | Starting, or resuming from `suspended` | Waits, then runs |
+| `running` | Working on a turn | Queues, steers or interrupts, by [mode](/api/http/turns#modes) |
+| `waiting` | Blocked on an open ask | Is [held](#messages-while-an-ask-is-open) until the ask closes, unless sent with `interrupt` |
+| `idle` | Ready | Runs at once |
+| `suspended` | Stopped. Its memory is freed, its workspace and conversation are kept. | Resumes the session, then runs |
+
+`waiting` is reported whenever an ask is open, even if the session was suspended with the ask open.
+
+A session never ends. There is no `ended` status and no route to end one: an idle session costs nothing but disk once it is suspended.
+
+## Turns
+
+A **turn** is the agent's work on one message. Its status moves forward only:
+
+```
+queued ──▶ running ──▶ completed
+   │          ├──────▶ failed
+   └──────────┴──────▶ cancelled
+```
+
+- Turns run one at a time, in the order they were queued.
+- A turn that is `cancelled` was interrupted, or was queued when an interrupt came.
+- A turn that `failed` has an [error](/api/reference/errors#turn-failures). The session stays usable: send another message.
+- A message sent with `steer` while a turn runs does not get a turn of its own. It joins the running turn, and the agent reads it at its next step. The send response says what happened in `delivery`.
+
+## Asks
+
+An **ask** blocks the turn that raised it until it closes. It closes once, as one of:
+
+| Status | Because |
+| --- | --- |
+| `answered` | Someone answered it. For a secret ask, someone set the secret. |
+| `dismissed` | Someone closed it without an answer. The agent is told and decides how to go on. |
+| `interrupted` | Its turn was interrupted |
+
+The first close wins. Any later answer or dismissal gets `409 ask_closed`, with the ask as it closed so the client can show who answered.
+
+### Messages while an ask is open
+
+A message sent while an ask is open is held, not steered: the agent cannot read anything until the ask closes. When it closes, held messages are delivered into the turn in the order they arrived, right after the answer. The send response has `delivery: "held"`.
+
+A message sent with `interrupt` is not held. It interrupts the turn, which closes the ask, and runs.
+
+## Who did what
+
+Every event caused by a person carries an `actor`: who, and through which client. Events the agent or the computer caused have `actor: null`. The actor comes from the credential, never from the request body. See [Actor](/api/reference/objects#actor).
+
+## Consistency
+
+- **One writer.** Each session's log is written in one place, so every client sees the same events in the same order.
+- **Read your writes.** A successful response means the change is in the log. A session read after it includes it.
+- **Live is not slower than the log.** An event reaches attached WebSocket clients when it is appended, not after a poll.
+- **Snapshots may lag events.** A session in a list can be a few seconds behind its log. A session read by id is not.

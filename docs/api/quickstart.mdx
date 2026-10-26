@@ -1,0 +1,77 @@
+---
+title: "API quickstart"
+description: "Start a session, watch it work and read the result, with curl and with JavaScript."
+---
+
+You need an API key. Create one on the dashboard under **Settings → API keys**, then:
+
+```bash
+export OPENCOMPUTER_API_KEY=<your key>
+export API=https://app.opencomputer.dev/api/managed-agents/computer
+```
+
+## 1. Start a session with a message
+
+```bash
+curl -s "$API/sessions" \
+  -H "x-api-key: $OPENCOMPUTER_API_KEY" \
+  -H "content-type: application/json" \
+  -H "idempotency-key: $(uuidgen)" \
+  -d '{ "input": "Which of our services still use Node 18? Answer with a list." }'
+```
+
+```json
+{
+  "session": { "id": "cs_7f3a9k2m4q8r1t6v", "status": "starting", "title": "Which of our services still use Node 18?", "…": "…" },
+  "turn": { "turnId": "tn_4m8q2x7c1v9b", "status": "queued", "delivery": "started", "duplicate": false }
+}
+```
+
+The session starts, and the agent begins on the message as soon as it is up. The response does not wait for it.
+
+## 2. Wait for the turn to end
+
+```bash
+id=cs_7f3a9k2m4q8r1t6v turn=tn_4m8q2x7c1v9b
+until curl -s "$API/sessions/$id/turns/$turn" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
+  | jq -e '.turn.status | IN("completed", "failed", "cancelled")' >/dev/null; do sleep 2; done
+```
+
+If the session's `status` becomes `waiting` meanwhile, the agent needs a person: see [Asks](/api/http/asks).
+
+## 3. Read the result
+
+```bash
+curl -s "$API/sessions/$id/turns/$turn" -H "x-api-key: $OPENCOMPUTER_API_KEY" | jq -r .turn.text
+```
+
+`text` is the agent's last message in the turn. For a turn that `failed`, `error` says why.
+
+## Stream it instead
+
+Polling is fine for scripts. To show the agent's work as it happens, open a WebSocket. With the client library:
+
+```ts
+import { Computer } from "@opencomputer/computer";
+
+const computer = new Computer(); // reads OPENCOMPUTER_API_KEY
+
+const { session, turn } = await computer.sessions.create({
+  input: "Which of our services still use Node 18? Answer with a list.",
+});
+
+for await (const event of computer.sessions.stream(session.id, { deltas: true })) {
+  if (event.type === "message.delta") process.stdout.write(event.data.text);
+  if (event.type === "message.completed") process.stdout.write("\n");
+  if (event.type === "turn.completed" && event.turnId === turn.turnId) break;
+  if (event.type === "turn.failed" && event.turnId === turn.turnId) throw new Error(event.data.message);
+}
+```
+
+`stream` gets a [ticket](/api/http/tickets), connects, attaches to the session and yields its events, reconnecting when needed without losing or repeating any. To do the same without the library, see [Connecting](/api/websocket/connect).
+
+## Next
+
+- [The model](/api/model): sessions, turns, events and how they fit
+- [Sending messages](/api/http/turns): queue, steer and interrupt
+- [Events](/api/reference/events): every event and its fields

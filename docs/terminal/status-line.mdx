@@ -1,0 +1,48 @@
+---
+title: "Status line"
+description: "The line under the prompt, and every state it can show."
+---
+
+The status line is always the last line on screen. Its left side says what the session is doing. Its right side shows hints and short-lived facts.
+
+```
+● running · 2 queued · 41k context                         ctrl+o details
+```
+
+## Session states
+
+| Shown | Meaning |
+| --- | --- |
+| `○ connecting` | `opc` is opening its connection. You can already type. |
+| `○ starting your computer` | Your organization's computer was asleep and is starting. This takes seconds. |
+| `○ starting` | The agent is being started for this session |
+| `○ resuming` | The session was suspended and the agent is being started again |
+| `● idle` | Ready |
+| `● running` | Working on a turn. `⠋` spins on the tool card that is running. |
+| `◆ waiting for you` | An ask is open |
+| `◌ suspended` | The agent process has stopped. Sending a message resumes it. |
+| `✗ offline · retrying in 4 s` | The connection dropped. `opc` reconnects on its own and catches up on everything it missed. Messages you send meanwhile wait and are sent once. |
+
+## Details on the left
+
+These appear after the state when they apply:
+
+| Detail | Meaning |
+| --- | --- |
+| `2 queued` | Messages waiting to run as their own turns |
+| `41k context` | How much of the model's context window the conversation uses. Shown when it passes half. |
+| `compacting` | A compaction is running |
+| `rate limited · 30 s` | The model provider asked the agent to wait. The turn continues on its own. |
+| `read-only` | You attached with `--read-only` |
+
+## Facts on the right
+
+Short-lived facts replace the hints for a few seconds, then fade:
+
+| Fact | When |
+| --- | --- |
+| `ready in 96 ms` | After a launch: from starting `opc` to an attached session |
+| `warm start` or `cold start · 1.4 s` | When the agent was started for this session. Warm means a pre-started agent was ready. |
+| `first token 1.31 s` | After you send: from `Enter` to the first character of the reply |
+
+`/timing` prints the full breakdown, and `--timing` prints it on exit. See [Timing](/reference/timing).

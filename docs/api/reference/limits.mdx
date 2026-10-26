@@ -1,0 +1,51 @@
+---
+title: "Limits"
+description: "Sizes, rates, timeouts and how long things are kept."
+---
+
+## Sizes
+
+| | Limit |
+| --- | --- |
+| A message's `input` | 100,000 characters |
+| A session's title | 200 characters |
+| A dismissal or denial `message` | 2,000 characters |
+| Turns queued in a session | 20 |
+| A tool's `input` or `output` in an event | 64 KiB, then cut with `truncated: true` |
+| A secret's value | 64 KiB |
+| An upload or download | 1 GiB and 100,000 files, unpacked |
+| A WebSocket message | 1 MiB |
+| A terminal data frame | 64 KiB |
+| A page of events | 500 |
+| A page of sessions, turns or asks | 100 |
+
+## Rates
+
+| | Limit |
+| --- | --- |
+| HTTP requests per key | 600 a minute, with bursts of 50 |
+| Tickets per key | 60 a minute |
+| WebSocket requests per connection | 100 a second |
+| WebSocket connections per member | 50 |
+| Sessions attached per connection | 20 |
+| Terminals per session | 8 |
+
+Over a rate limit, the request fails with `429 rate_limited` and `retryAfterMs`. Over HTTP, `Retry-After` is set too, in seconds.
+
+## Times
+
+| | |
+| --- | --- |
+| A ticket, to open a connection | 10 minutes |
+| A WebSocket connection | 1 hour, then closed with `4001` |
+| An idle session, before it suspends | 2 hours |
+| Build output and dependencies in an idle workspace | Pruned after 24 hours idle |
+| An idempotency key | 24 hours |
+| An interrupt, before the agent process is restarted | 10 seconds |
+| A turn | No limit. A turn runs until it ends or is interrupted. |
+
+## Retention
+
+Sessions, their events and their workspaces' source files are kept for as long as your organization exists. There is no route to delete a session in this version.
+
+Secrets are kept until deleted. A `session` secret is kept as long as its session.

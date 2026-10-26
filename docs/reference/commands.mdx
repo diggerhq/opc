@@ -1,0 +1,184 @@
+---
+title: "Commands"
+description: "Every opc command and option."
+---
+
+## Conventions
+
+- **Session arguments.** Wherever a command takes `<id>`, it accepts a full id (`cs_7f3a9k2m4q8r1t6v`), a unique prefix of four or more characters (`7f3a`), `-` for the session you last attached to on this machine, or a Slack thread link.
+- **Output.** Every command that prints data accepts `--json`. Commands that print a session's activity also accept `--output-format text|json|stream-json`; `--json` is short for `--output-format json`. JSON goes to standard output, messages for people to standard error.
+- **Durations** are written `90s`, `20m` or `2h`.
+- **No secrets on the command line.** Keys and secret values are read from the environment, a hidden prompt or standard input.
+
+## Global options
+
+| Option | Does |
+| --- | --- |
+| `--timing` | On exit, prints where the time went to standard error. See [Timing](/reference/timing). |
+| `--no-color` | No colors. Same as `NO_COLOR=1`. |
+| `-q`, `--quiet` | No progress messages on standard error |
+| `-v`, `--verbose` | Debug logs to standard error. Same as `OPC_LOG=debug`. |
+| `-h`, `--help` | Help for the command |
+| `-V`, `--version` | Version and protocol |
+
+## opc
+
+```
+opc [options] [message]
+opc -p [options] [message]
+```
+
+Starts a new session. With a message, sends it. With `-p`, runs one turn non-interactively. See [Sessions](/cli/sessions) and [Scripting](/cli/scripting).
+
+| Option | Does |
+| --- | --- |
+| `-p`, `--print` | Non-interactive: send, wait, print the result |
+| `-s`, `--session <id>` | With `-p`, sends to an existing session instead of creating one |
+| `--model <model>` | Model for the new session |
+| `--effort <level>` | Effort level for the new session |
+| `--mode <mode>` | Permission mode for the new session |
+| `--title <title>` | Title, instead of one from the first message |
+| `--push <dir>` | Pushes a directory into the new session before sending. Repeatable. |
+| `--output-format <format>` | With `-p`: `text`, `json` or `stream-json` |
+| `--include-partial-messages` | With `stream-json`: also print text deltas |
+| `--timeout <duration>` | With `-p`: give up after this long, exit `124` |
+| `--interrupt-on-timeout` | With `--timeout`: interrupt the turn before exiting |
+
+## opc a
+
+```
+opc a [<id> | <words>] [options]
+```
+
+Attaches to a session. Alias: `opc attach`.
+
+| Option | Does |
+| --- | --- |
+| `--all` | Match and pick among the organization's sessions, not only yours |
+| `--read-only` | Attach without the ability to send or answer |
+| `--web` | Open the session on the dashboard instead |
+| `--no-history` | Do not print earlier turns |
+
+## opc ls
+
+```
+opc ls [options]
+```
+
+Lists sessions. Alias: `opc list`.
+
+| Option | Does |
+| --- | --- |
+| `--all` | The organization's sessions |
+| `--status <status>` | `starting`, `running`, `waiting`, `idle` or `suspended`. Repeatable. |
+| `--limit <n>` | At most `n` rows, up to 500. Default 50. |
+| `--long` | Adds the last line the agent wrote |
+| `--json` | A JSON array of session objects |
+
+## opc send
+
+```
+opc send <id> <message | -> [options]
+```
+
+Sends a message and returns when it is accepted.
+
+| Option | Does |
+| --- | --- |
+| `--mode <mode>` | `steer` (default), `queue` or `interrupt` |
+| `--json` | Prints `{ sessionId, turnId, status }` |
+
+## opc wait
+
+```
+opc wait <id> [--timeout <duration>] [--json]
+```
+
+Blocks until no turn is running or queued. Exit `0` completed, `1` failed or cancelled, `5` waiting for a person, `124` timed out.
+
+## opc watch
+
+```
+opc watch <id> [options]
+```
+
+Prints a session's activity, read-only, until it is idle or waiting.
+
+| Option | Does |
+| --- | --- |
+| `--from-start` | Print the whole history first |
+| `--follow` | Keep watching across turns until interrupted |
+| `--output-format <format>` | `text`, `json` or `stream-json` |
+| `--include-partial-messages` | With `stream-json`: also print text deltas |
+
+## opc interrupt
+
+```
+opc interrupt <id>
+```
+
+Interrupts the running turn and cancels queued ones.
+
+## opc push
+
+```
+opc push [dir] [-s <id>] [--to <name>] [--no-ignore] [--dry-run] [--json]
+```
+
+Copies a local directory into a session's workspace. See [Files](/cli/files#push).
+
+## opc pull
+
+```
+opc pull <path> [dir] [-s <id>] [--force] [--dry-run] [--json]
+```
+
+Copies a directory or file from a session's workspace. See [Files](/cli/files#pull).
+
+## opc shell
+
+```
+opc shell [id] [-c <command>] [--no-tty]
+```
+
+Opens a shell in a session's workspace. See [Shell](/cli/shell).
+
+## opc secret
+
+```
+opc secret set <NAME> [--scope session|me|workspace] [-s <id>] [--file <path>]
+opc secret ls [-s <id>] [--json]
+opc secret rm <NAME> [--scope session|me|workspace] [-s <id>]
+```
+
+Manages secrets the agent can use. `set` reads the value from a hidden prompt, or from standard input when it is not a terminal; `--file` reads it from a file and gives it to the agent as a file. `--scope` defaults to `session`, which needs `-s` or uses the session you last attached to. `ls` prints names and scopes, never values. See [Secrets](/terminal/asks#secrets).
+
+## opc login, logout, whoami
+
+```
+opc login [--no-browser] [--force]
+opc logout
+opc whoami [--json]
+```
+
+See [Logging in](/cli/auth).
+
+## opc doctor
+
+```
+opc doctor [--json]
+```
+
+Checks, in order, and stops at the first failure: the configuration file, the credential, the API, your computer, the connection to it, and a round trip through it. Prints each step's time. Run it first when something is wrong. See [Troubleshooting](/troubleshooting).
+
+## opc completion
+
+```
+opc completion bash|zsh|fish
+```
+
+Prints a completion script. See [Install](/install#shell-completions).
+
+## Messages that look like commands
+
+The first argument is a command when it is one of the names on this page. `opc -- ls` sends "ls" as a message. Messages with spaces, quoted, are never mistaken for commands.

@@ -1,0 +1,50 @@
+---
+title: "CI and agents"
+description: "Run opc where nobody can log in: CI jobs, cron, other agents."
+---
+
+Where there is no person to confirm a login, give `opc` an API key.
+
+<Steps>
+  <Step title="Create a key">
+    On the dashboard, open **Settings → API keys** and create a key with a name that says where it runs, such as `ci-nightly`. Copy it: it is shown once.
+
+    The key acts as you. Sessions it creates are yours, and it can do what you can. Create keys as a dedicated member of the organization when the work is not yours.
+  </Step>
+  <Step title="Give it to opc">
+    Set `OPENCOMPUTER_API_KEY` in the job's secrets:
+
+    ```yaml
+    # .github/workflows/nightly.yml
+    - name: Ask Computer about the failures
+      env:
+        OPENCOMPUTER_API_KEY: ${{ secrets.OPENCOMPUTER_API_KEY }}
+      run: |
+        curl -fsSL https://opencomputer.dev/opc/install.sh | sh
+        ~/.local/bin/opc -p --mode dontAsk --timeout 20m \
+          "the nightly run ${{ github.run_id }} failed; find the cause and open a PR with a fix"
+    ```
+
+    `OPENCOMPUTER_API_KEY` takes precedence over the configuration file.
+  </Step>
+</Steps>
+
+## Behaviour without a terminal
+
+When standard input is not a terminal, `opc` never prompts, never opens a browser and never waits for a key. When it cannot go on, it says in one line what would fix it, and exits with a [code](/reference/exit-codes) a script can test:
+
+```
+opc: not logged in. Set OPENCOMPUTER_API_KEY, or run opc login on a machine with a browser.
+```
+
+With `--json`, errors are printed to standard error as `{"error": {"code": "not_logged_in", "message": "…"}}`.
+
+## Asks in unattended runs
+
+Nobody is there to answer an [ask](/terminal/asks), so `opc -p` exits with code `5` when one opens. Choose a permission mode that does not ask: `--mode acceptEdits` lets the agent edit freely and still ask about commands, `--mode dontAsk` never asks and skips what would need approval.
+
+## Keeping keys safe
+
+- Pass the key in the environment only. `opc` has no flag for it, so it never appears in a process list or shell history.
+- `opc` never prints a key, including in `--timing` and debug logs.
+- Revoke a key on the dashboard the moment it may have leaked. New requests fail at once. A connection already open is closed within an hour, when it next needs a new ticket.

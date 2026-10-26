@@ -1,0 +1,47 @@
+---
+title: "Client libraries"
+description: "The TypeScript client, and what any client should do."
+---
+
+## TypeScript
+
+```bash
+npm install @opencomputer/computer
+```
+
+```ts
+import { Computer } from "@opencomputer/computer";
+
+const computer = new Computer({ apiKey: process.env.OPENCOMPUTER_API_KEY });
+
+const { session } = await computer.sessions.create({ title: "release notes" });
+await computer.turns.send(session.id, { input: "draft release notes for v2.3 from the merged PRs" });
+
+for await (const event of computer.sessions.stream(session.id, { deltas: true })) {
+  if (event.type === "message.delta") process.stdout.write(event.data.text);
+  if (event.type === "ask.opened") console.log("\nneeds a person:", event.data.ask.kind);
+  if (event.type === "turn.completed") break;
+}
+```
+
+It is what `opc` uses, and it does the work described below for you:
+
+- Every HTTP route and WebSocket method, typed, with the API's names
+- `sessions.stream(id, { after, deltas })`: an async iterator of events that gets tickets, connects, attaches, reconnects before `4001` and after drops, and skips repeats by `seq`
+- One shared connection for every stream in a process
+- An idempotency key on every write, and retries for errors that can be retried
+- `ComputerError` with `code`, `status` and `requestId`
+
+In a browser, construct it with `{ ticket: () => fetchTicketFromYourServer() }` instead of a key. It then uses the WebSocket only. See [Giving tickets to a browser](/api/http/tickets#giving-tickets-to-a-browser).
+
+## Writing your own
+
+Any language with HTTP and WebSocket clients will do. A correct client:
+
+1. **Keeps a cursor per session.** The last `seq` it applied, and nothing else, is what it needs to resume.
+2. **Skips events at or below its cursor.** Repeats happen across reconnects, and are safe to skip.
+3. **Replaces deltas with completed blocks.** Keyed by `blockId`.
+4. **Sends an idempotency key with every message**, and the same key on retry.
+5. **Reconnects before `4001`**, opening the new connection before closing the old.
+6. **Ignores what it does not know**: fields, event types, statuses. See [Versioning](/api/reference/versioning).
+7. **Never logs keys or tickets**, and never puts them in URLs.

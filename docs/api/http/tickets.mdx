@@ -1,0 +1,71 @@
+---
+title: "Tickets"
+description: "Short-lived credentials for opening WebSocket connections."
+---
+
+```http
+POST /wire/tickets
+```
+
+```bash
+curl -s -X POST "$API/wire/tickets" -H "x-api-key: $OPENCOMPUTER_API_KEY" \
+  -H "content-type: application/json" -d '{ "client": "my-dashboard/1.4.0" }'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `client` | Optional. Your client's name and version, up to 64 characters. It appears in `actor.client` on what the connection does, and in `opc --timing`. Default: the request's `User-Agent`. |
+
+```json
+{
+  "ticket": "tk_Jm4vQ8x2Lr7…",
+  "url": "wss://wire.opencomputer.app/connect",
+  "expiresAt": "2026-10-26T09:11:02.311Z"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `ticket` | The ticket. Letters, digits, `_` and `-`, at most 200 characters. |
+| `url` | Where to connect. Use it as given: it can change, and differs between regions. |
+| `expiresAt` | 10 minutes from now. Connections must open before then. |
+
+Open the connection with the ticket in the subprotocol list:
+
+```ts
+const ws = new WebSocket(url, ["opc.v1", `opc.ticket.${ticket}`]);
+```
+
+See [Connecting](/api/websocket/connect) for the rest.
+
+## Rules
+
+- **A ticket acts as you.** It can do over the WebSocket what your key can do, except get more tickets, manage secrets and transfer files, which are HTTP only.
+- **Reusable until it expires.** One ticket can open several connections, which is how `opc` connects without waiting for a ticket on every launch. It caches its ticket in `~/.opencomputer/opc/tickets.json` and gets a new one in the background when less than 2 minutes remain.
+- **Connections outlive tickets, by at most an hour.** A connection lasts until it closes or until one hour after it opened, when the server closes it with code `4001`. Get a new ticket before then and reconnect. See [Connecting](/api/websocket/connect#reconnecting).
+- **Revocation.** Revoking the key that got a ticket stops the ticket within a minute: new connections with it are refused. Connections already open close within an hour, at their `4001`.
+- **Not in URLs.** A ticket goes in the subprotocol header, never in the URL, so it does not appear in proxy or server logs.
+
+## Giving tickets to a browser
+
+A browser should never hold an API key. Have your server get tickets with its key, and hand them to your page:
+
+```ts
+// your server
+app.post("/computer-ticket", requireLogin, async (req, res) => {
+  const r = await fetch(`${API}/wire/tickets`, {
+    method: "POST",
+    headers: { "x-api-key": process.env.OPENCOMPUTER_API_KEY!, "content-type": "application/json" },
+    body: JSON.stringify({ client: "acme-portal/2.0" }),
+  });
+  res.json(await r.json());
+});
+```
+
+The ticket acts as the member who owns the key, whoever holds it. Only hand it to people who may act as that member.
+
+| Status | Code | When |
+| --- | --- | --- |
+| `401` | `unauthenticated` | No key, or a revoked one |
+| `403` | `forbidden` | A project-scoped key |
+| `429` | `rate_limited` | More than 60 tickets a minute for one key |

@@ -1,0 +1,78 @@
+---
+title: "API overview"
+description: "The HTTP and WebSocket API behind opc, Slack and the dashboard."
+---
+
+The Computer API is what `opc` is built on. Everything `opc` does, a program can do: start sessions, send messages, stream the agent's work as it happens, answer approvals and questions, move files and open a shell. There is no private API behind `opc`.
+
+It has two parts that share one data model:
+
+| | HTTP | WebSocket |
+| --- | --- | --- |
+| Base | `https://app.opencomputer.dev/api/managed-agents/computer` | The `url` in a [ticket](/api/http/tickets) |
+| Use it for | Creating and listing sessions, single actions, reading history, files, secrets | Watching sessions live: text as it is written, a few milliseconds after the model produces it |
+| Shape | JSON requests and responses | JSON-RPC 2.0 messages |
+| Auth | An API key on every request | A short-lived ticket, once, when connecting |
+
+Every action is available over HTTP. The WebSocket adds live events, text deltas and terminals. A program that only needs to start work and collect the result never has to open a WebSocket: see [Quickstart](/api/quickstart).
+
+## Where it fits
+
+```
+ opc · your programs · the dashboard              Slack
+        │                                           │
+        │ HTTP, API key       app.opencomputer.dev  │
+        │ WebSocket, ticket   wire.opencomputer.app │
+        ▼                                           ▼
+  OpenComputer edge ─────────────▶ your organization's computer
+```
+
+Slack, `opc`, the dashboard and your programs are clients of the same sessions. A session started in Slack can be watched and answered from the API, and a session started from the API shows on the dashboard. Slack is where some sessions start, not a different kind of session.
+
+## Conventions
+
+- **JSON**, UTF-8, camelCase field names. Requests with a body send `Content-Type: application/json`.
+- **Times** are ISO 8601 in UTC with milliseconds, such as `2026-10-26T09:01:02.311Z`. Durations are integers named with their unit, such as `durationMs`.
+- **Ids** have a type prefix: `cs_` sessions, `tn_` turns, `ak_` asks, `ev_` events, `usr_` people. Treat them as opaque strings of at most 40 characters.
+- **Absent and null.** A field that does not apply is `null`. Optional request fields may be omitted.
+- **New fields** can appear in any response or event at any time. Ignore what you do not know. See [Versioning](/api/reference/versioning).
+- **Errors** are `{ "error": { "code", "message" } }` with a stable `code` to branch on. See [Errors](/api/reference/errors).
+- **Writes are idempotent** with an `Idempotency-Key` header. See [Idempotency](/api/reference/idempotency).
+- **Lists** are paginated with `limit` and `cursor`, and return `nextCursor`, `null` on the last page.
+
+## Routes
+
+| Method | Path | Does |
+| --- | --- | --- |
+| `GET` | [`/me`](/api/authentication#who-am-i) | You, your organization, your computer and what it supports |
+| `POST` | [`/sessions`](/api/http/sessions#create-a-session) | Creates a session, optionally with its first message |
+| `GET` | [`/sessions`](/api/http/sessions#list-sessions) | Lists sessions |
+| `GET` | [`/sessions/{id}`](/api/http/sessions#get-a-session) | One session |
+| `PATCH` | [`/sessions/{id}`](/api/http/sessions#update-a-session) | Changes title, model, effort or permission mode |
+| `POST` | [`/sessions/{id}/turns`](/api/http/turns#send-a-message) | Sends a message |
+| `GET` | [`/sessions/{id}/turns`](/api/http/turns#list-turns) | Lists turns |
+| `GET` | [`/sessions/{id}/turns/{turnId}`](/api/http/turns#get-a-turn) | One turn |
+| `GET` | [`/sessions/{id}/asks`](/api/http/asks#list-asks) | Lists asks |
+| `POST` | [`/sessions/{id}/asks/{askId}/answer`](/api/http/asks#answer-an-ask) | Answers an approval or question |
+| `POST` | [`/sessions/{id}/asks/{askId}/dismiss`](/api/http/asks#dismiss-an-ask) | Closes an ask without an answer |
+| `POST` | [`/sessions/{id}/interrupt`](/api/http/control#interrupt) | Stops the running turn and every queued one |
+| `POST` | [`/sessions/{id}/compact`](/api/http/control#compact) | Summarizes the conversation to free context |
+| `POST` | [`/sessions/{id}/suspend`](/api/http/control#suspend) | Stops the agent process now |
+| `POST` | [`/sessions/{id}/resume`](/api/http/control#resume) | Starts it again, ahead of the next message |
+| `GET` | [`/sessions/{id}/events`](/api/http/events) | Reads the event log |
+| `GET` | [`/sessions/{id}/workspace/files`](/api/http/workspace#list-files) | Lists files in the session's workspace |
+| `GET` | [`/sessions/{id}/workspace/archive`](/api/http/workspace#download) | Downloads a directory or file as tar |
+| `PUT` | [`/sessions/{id}/workspace/archive`](/api/http/workspace#upload) | Uploads a directory as tar |
+| `GET` | [`/secrets`](/api/http/secrets#list-secrets) | Lists secret names you can see |
+| `PUT` | [`/secrets/{name}`](/api/http/secrets#set-a-secret) | Sets a secret |
+| `DELETE` | [`/secrets/{name}`](/api/http/secrets#delete-a-secret) | Deletes a secret |
+| `POST` | [`/wire/tickets`](/api/http/tickets) | Gets a ticket to open a WebSocket |
+
+The WebSocket's methods are on [Methods](/api/websocket/methods).
+
+## What the API does not do
+
+- **End or delete a session.** Sessions suspend when idle and can always be resumed. See [Retention](/api/reference/limits#retention).
+- **Read your machine.** Files reach the computer only through [workspace uploads](/api/http/workspace).
+- **Run the agent's tools on your side.** Every tool runs on the computer.
+- **Manage the computer, repositories or members.** Those are on the dashboard and in the [OpenComputer API](https://docs.opencomputer.dev).

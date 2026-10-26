@@ -1,0 +1,36 @@
+---
+title: "Flow control"
+description: "What the server does when a client reads slower than the agent writes."
+---
+
+The agent can write faster than a slow connection can carry. The server keeps each connection fast by treating deltas and recorded events differently.
+
+## Deltas give way
+
+Deltas are a preview, so they are the first to go. While a connection's send buffer holds more than 256 KiB:
+
+1. Deltas waiting for the same block are merged into one, so you get fewer, larger fragments with no text lost.
+2. If the buffer still grows past 1 MiB, deltas are dropped. The block's `message.completed` or `tool.completed` still arrives, and its full text replaces what you drew.
+
+A client never has to detect this. Draw deltas as they come, and replace a block's text when its completed event arrives.
+
+## Recorded events never give way
+
+Recorded events are never dropped or merged. If a connection falls more than 8 MiB or 10,000 events behind on them, the server closes it with `4008`. Reconnect and attach with your last applied `seq` as `after`: you catch up without a gap, and the server sends the backlog at your pace.
+
+## Being a fast client
+
+- **Read the socket on its own.** Parse frames as they arrive and render on a timer, at most once per screen frame. `opc` draws at most 60 times a second, however fast deltas arrive.
+- **Attach with `deltas` only where text is shown.** A program that watches for `turn.completed` does not need them.
+- **Detach from sessions you stop showing.**
+- **Keep `after` small.** Store the last `seq` you applied, and attach from it, rather than replaying a session from the start.
+
+## Your sending
+
+| | Limit | Over it |
+| --- | --- | --- |
+| Requests | 100 a second per connection | `-32000` with `data.code: "rate_limited"` and `data.retryAfterMs` |
+| Message size | 1 MiB | The connection closes with `1009` |
+| Terminal input | 1 MiB a second per terminal | As requests |
+
+Compression (`permessage-deflate`) is not offered. Frames are small, and compressing them would add latency to every keystroke and every delta.

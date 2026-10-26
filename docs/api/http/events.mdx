@@ -1,0 +1,60 @@
+---
+title: "Events"
+description: "Read a session's event log over HTTP."
+---
+
+```http
+GET /sessions/{id}/events
+```
+
+```bash
+curl -s "$API/sessions/cs_7f3a9k2m4q8r1t6v/events?after=0" -H "x-api-key: $OPENCOMPUTER_API_KEY"
+```
+
+| Query | Meaning |
+| --- | --- |
+| `after` | Return events with a `seq` greater than this. Default `0`, the start. |
+| `limit` | 1 to 500. Default 500. |
+| `turnId` | Only events of this turn |
+| `types` | Only these types, separated by commas. A trailing `*` matches a prefix, such as `tool.*`. |
+
+```json
+{
+  "events": [
+    { "id": "ev_…", "seq": 1, "type": "session.created", "…": "…" },
+    { "id": "ev_…", "seq": 2, "type": "message.received", "…": "…" }
+  ],
+  "lastSeq": 1184
+}
+```
+
+`events` are in ascending `seq`. `lastSeq` is the session's newest `seq` when the page was read, so you know whether more remain. Deltas are never included. See [Events](/api/reference/events) for every type.
+
+With `turnId` or `types`, `seq` values have gaps. Keep using the last `seq` you received as `after`.
+
+## Read a whole log
+
+Start at `after=0`, and repeat with the `seq` of the last event until a page has fewer events than `limit`.
+
+```bash
+after=0
+while :; do
+  page=$(curl -s "$API/sessions/$id/events?after=$after" -H "x-api-key: $OPENCOMPUTER_API_KEY")
+  jq -c '.events[]' <<<"$page"
+  n=$(jq '.events | length' <<<"$page"); [ "$n" -lt 500 ] && break
+  after=$(jq '.events[-1].seq' <<<"$page")
+done
+```
+
+`opc watch --from-start --output-format stream-json` prints the same.
+
+## Follow a session
+
+Polling this route every second or two follows a session, and is enough for a script. For anything a person watches, [attach over a WebSocket](/api/websocket/methods#attach) instead: events arrive the moment they are recorded, text streams as it is written, and nothing polls.
+
+The two give the same events with the same `seq`. A client can read history here, then attach with `after` set to the last `seq` it read.
+
+| Status | Code | When |
+| --- | --- | --- |
+| `400` | `invalid_request` | `after` is negative or not a number, or `limit` is out of range |
+| `404` | `session_not_found` | |

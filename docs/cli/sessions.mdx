@@ -1,0 +1,88 @@
+---
+title: "Sessions"
+description: "Start, list, attach, detach and resume."
+---
+
+`opc` alone always starts a new session. Everything about finding and returning to sessions is under `opc ls` and `opc a`.
+
+## Start a session
+
+```bash
+opc                                   # new session, type at the prompt
+opc "why does the nightly build fail?"   # new session, message already sent
+opc --model "sonnet 5.5" --mode plan  # with settings for this session
+```
+
+A new session starts from a fresh copy of your organization's workspace. It does not matter which directory you run `opc` in: `opc` does not read it.
+
+When the first argument is the name of an `opc` command, it is the command. To send such a word as a message, put `--` first: `opc -- ls` sends "ls".
+
+## List sessions
+
+```
+$ opc ls
+   ID    TITLE                              STATUS            WHERE      WHO    ACTIVE
+ ◆ 7f3a  flaky test in segment.test.ts      waiting for you   #_build    you    2m
+ ● 9c1e  codex contract review              running           opc        you    14m
+   b20d  warm pool round 3                  idle              #_build    you    3h
+   e4k8  old spike                          suspended         opc        you    2d
+```
+
+- **ID** is the shortest unique prefix, at least four characters.
+- **WHERE** is the Slack channel for sessions started in Slack, and the client name for the rest: `opc`, `api` or the name a client gave.
+- **ACTIVE** is the time since the last event.
+
+`opc ls` shows your sessions, most recently active first, up to 50. Options:
+
+| Option | Does |
+| --- | --- |
+| `--all` | Every session in the organization, with the owner in **WHO** |
+| `--status <status>` | Only sessions in this status. Repeat for several: `--status running --status waiting`. |
+| `--limit <n>` | Up to `n` rows, at most 500 |
+| `--long` | Adds the last line the agent wrote |
+| `--json` | One JSON array of [session objects](/api/reference/objects#session), for scripts |
+
+## Attach
+
+```bash
+opc a                 # picker
+opc a flaky           # by title words
+opc a 7f3a            # by id or unique prefix
+opc a -               # the session you last attached to on this machine
+opc a https://acme.slack.com/archives/C07ABC/p1761400000000100   # by Slack thread
+opc a 7f3a --web      # open it on the dashboard instead
+```
+
+`opc a` with no argument, and `/sessions` inside a session, open a **picker**: type to filter on titles and last lines, `↑` `↓` to move, `Enter` to attach, `Esc` to cancel. The picker opens instantly on the list cached from the last run and refreshes in place.
+
+With words, `opc a` attaches when exactly one of your sessions matches, and opens the picker filtered to the matches otherwise. Add `--all` to match the organization's sessions.
+
+`opc a -` uses `~/.opencomputer/opc/state.json`, so it means "the last session on this machine", not across your machines. With no such session it attaches to your most recently active one.
+
+Attaching prints the session's earlier turns, then the live part. Attaching does not change the session: the agent never notices a client arriving or leaving.
+
+## Detach
+
+`Ctrl+D` on an empty prompt line, `Ctrl+C` twice, `/detach`, or closing the terminal. `opc` prints where you were:
+
+```
+[detached from "flaky test in segment.test.ts" · running · opc a - to return]
+```
+
+A running turn finishes on the computer. A lost connection is not a detach: `opc` reconnects on its own and catches up.
+
+## Suspended sessions
+
+A session that has been idle for two hours is suspended: its agent process stops. Nothing is lost. Attaching to it shows its history at once and starts the agent in the background, so it is usually ready by the time you have typed. That start is cold and takes a few seconds; the status line says `resuming`.
+
+`/suspend` suspends a session right away, which frees the computer's memory for others.
+
+## Many clients, one session
+
+Any number of terminals, the Slack thread and the dashboard can show one session at once. Each one sees every message and answer, with who sent it and from where. A message sent from any of them steers or queues the same way. To watch without any risk of typing into a session, attach with `--read-only`.
+
+See [Sharing](/cli/sharing) for who can attach to what.
+
+## Moving between Slack and the terminal
+
+Every session started in Slack can be attached with its thread link. In the other direction, `/id` in `opc` prints the session's dashboard link. Sessions started from `opc` are not posted to Slack.

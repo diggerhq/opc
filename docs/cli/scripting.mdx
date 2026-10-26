@@ -1,0 +1,156 @@
+---
+title: "Scripting"
+description: "opc -p, send, wait and watch: Computer in a shell pipeline."
+---
+
+Every interactive feature has a non-interactive form, with output a program can read and exit codes it can act on. None of these commands ever prompts, opens a browser or waits for a key.
+
+## Run one turn: `opc -p`
+
+```bash
+opc -p "summarize what changed in billing-service this week"
+```
+
+`-p` (`--print`) creates a session, sends the message, waits for the turn to end and prints the agent's final message to standard output. Progress goes to standard error only when it is a terminal.
+
+The message can come from standard input instead:
+
+```bash
+git diff main | opc -p "review this diff for security problems"
+cat task.md | opc -p
+```
+
+With both, the argument comes first, then a blank line, then standard input.
+
+To continue an existing session instead of creating one, pass `--session` (`-s`):
+
+```bash
+opc -p -s 7f3a "now open the pull request"
+```
+
+When standard input or standard output is not a terminal, `opc "message"` behaves like `opc -p "message"`.
+
+### Output formats
+
+`--output-format` follows Claude Code's `claude -p`, so a script written for one reads the other.
+
+| Format | Prints |
+| --- | --- |
+| `text` | The final message, as plain text. The default. |
+| `json` | One JSON object when the turn ends |
+| `stream-json` | One [event](/api/reference/events) per line as it happens, then the same object as `json` as the last line |
+
+The `json` object:
+
+```json
+{
+  "type": "result",
+  "sessionId": "cs_7f3a9k2m4q8r1t6v",
+  "turnId": "tn_4m8q2x7c1v9b",
+  "status": "completed",
+  "result": "The nightly build fails because…",
+  "url": "https://app.opencomputer.dev/computer/sessions/cs_7f3a9k2m4q8r1t6v",
+  "durationMs": 48211,
+  "usage": { "inputTokens": 81233, "outputTokens": 2210, "cachedTokens": 76002, "costUsd": 0.41 }
+}
+```
+
+`status` is `completed`, `failed`, `cancelled` or `waiting`. With `failed`, `error` holds `{ code, message }`. With `waiting`, `ask` holds the open [ask](/api/reference/objects#ask).
+
+`stream-json` prints recorded events only. Add `--include-partial-messages` to also print text as it streams, as `message.delta` and `reasoning.delta` events.
+
+### Options for `-p`
+
+| Option | Does |
+| --- | --- |
+| `-s`, `--session <id>` | Sends to this session instead of creating one |
+| `--push <dir>` | Copies a local directory into the new session's workspace before sending. Repeatable. See [Files](/cli/files). |
+| `--model`, `--effort`, `--mode` | Settings for a new session |
+| `--title <title>` | Title for a new session |
+| `--timeout <duration>` | Gives up after this long, such as `90s` or `20m`, exit code `124`. The turn keeps running. |
+| `--interrupt-on-timeout` | With `--timeout`, interrupts the turn before exiting |
+
+## When the agent needs a person
+
+A script cannot answer an [ask](/terminal/asks). When one opens, `opc -p` prints it to standard error and exits with code `5`:
+
+```
+opc: waiting for a person: approval for "Bash: terraform apply" in session 7f3a
+     answer it with: opc a 7f3a
+```
+
+The session keeps waiting. Run scripts in a permission mode that does not ask, such as `--mode acceptEdits` for edits or `--mode dontAsk`, when nobody will be there to answer.
+
+## Send without waiting: `opc send`
+
+```bash
+opc send 7f3a "also add a regression test"
+opc send 7f3a --mode queue "then update the changelog"
+echo "stop, the bug is in the parser" | opc send 7f3a --mode interrupt -
+```
+
+Sends a message and returns as soon as the session accepted it. `--mode` is `steer` (the default, as in the terminal), `queue` or `interrupt`. `-` reads the message from standard input. Prints the turn id; `--json` prints `{ sessionId, turnId, status }`.
+
+## Wait for a session: `opc wait`
+
+```bash
+opc wait 7f3a && echo done
+```
+
+Blocks until the session has nothing left to do: no turn running or queued. Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The last turn completed |
+| `1` | The last turn failed or was cancelled |
+| `5` | The session is waiting for a person |
+| `124` | `--timeout` passed |
+
+A session that is already idle returns at once with the status of its last turn.
+
+## Follow a session: `opc watch`
+
+```bash
+opc watch 7f3a
+opc watch 7f3a --output-format stream-json | jq -c 'select(.type == "tool.started")'
+```
+
+Prints a session's events as they happen, read-only, and exits as `opc wait` does. `--from-start` prints the whole history first. `--follow` keeps watching across turns until interrupted.
+
+## Stop a turn: `opc interrupt`
+
+```bash
+opc interrupt 7f3a
+```
+
+Interrupts the running turn and cancels queued messages, as `Esc` does. Returns when the turn has stopped.
+
+## A complete script
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Send the local checkout, ask for a fix, bring the result back.
+out=$(opc -p --push . --mode acceptEdits --output-format json \
+  "make the tests in ./$(basename "$PWD") pass; do not commit")
+id=$(jq -r .sessionId <<<"$out")
+
+opc pull -s "$id" "$(basename "$PWD")" ./fixed
+jq -r .result <<<"$out"
+```
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `1` | The turn failed or was cancelled |
+| `2` | Usage error, or this version of `opc` is no longer supported |
+| `3` | Not logged in, or the credential was rejected |
+| `4` | Cannot reach OpenComputer or your computer |
+| `5` | Waiting for a person |
+| `124` | Timed out |
+| `130` | Interrupted with `Ctrl+C` |
+
+See [Exit codes](/reference/exit-codes) for the error codes printed with `--json`.

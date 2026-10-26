@@ -1,0 +1,83 @@
+---
+title: "Terminals"
+description: "Open a shell or run a command in a session's workspace, over the WebSocket."
+---
+
+A terminal is a shell on the computer, in the session's workspace, as the agent's user. It is what `opc shell` and `/shell` use. See [Shell](/cli/shell) for a person's view.
+
+- It starts in the workspace's root, with the agent's tools on the `PATH`.
+- It does **not** get the session's [secrets](/api/http/secrets) in its environment. A person at a shell can read anything the agent's user can, so secrets are not handed to it.
+- It does not need the agent: it opens on a suspended session without resuming it.
+- While it is open, the session does not suspend for being idle.
+- It ends when you close it, when its process exits, or when the connection closes. It does not survive a reconnect.
+
+## pty.open
+
+```json
+{ "jsonrpc": "2.0", "id": 3, "method": "pty.open", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "cols": 120, "rows": 40 } }
+```
+
+| Param | Meaning |
+| --- | --- |
+| `sessionId` | |
+| `cols`, `rows` | The terminal's size. Required with `tty`. |
+| `command` | Optional. A command to run with `bash -lc` instead of an interactive shell |
+| `tty` | Optional, default `true`. `false` runs without a pseudo-terminal, for scripts: no echo, no colors, and standard error kept apart from standard output. |
+| `term` | Optional. The `TERM` value. Default `xterm-256color`. |
+
+```json
+{ "jsonrpc": "2.0", "id": 3, "result": { "ptyId": "pt_2m7q9x4c", "channel": 1, "stderrChannel": null } }
+```
+
+`channel` numbers the binary frames of this terminal. `stderrChannel` is a second channel for standard error when `tty` is `false`, else `null`.
+
+A `shell.opened` event is recorded in the session with who opened it. What is typed and printed is not.
+
+## Data
+
+Terminal data travels in binary WebSocket frames, both ways, never in JSON:
+
+| Bytes | Content |
+| --- | --- |
+| 0 to 3 | The channel, an unsigned 32-bit integer, big-endian |
+| 4 onwards | The data, exactly as the terminal produced it |
+
+- From the server: output on `channel`, and standard error on `stderrChannel`.
+- From you: input on `channel`, exactly the bytes a terminal would send, such as `\r` for `Enter` and `\x03` for `Ctrl+C`.
+- Output is sent as it is produced, without buffering for size, so a keystroke's echo comes back in one round trip.
+- At most 64 KiB per frame.
+
+## pty.resize
+
+`{ ptyId, cols, rows }`. Send it when the terminal's size changes. The result is `{}`.
+
+## pty.eof
+
+`{ ptyId }`. Closes the command's standard input, for `tty: false`. With a tty, send `\x04` instead.
+
+## pty.close
+
+`{ ptyId }`. Hangs up: the shell gets `SIGHUP`, and after 5 seconds `SIGKILL`. The result is `{}`, and `pty.exit` follows.
+
+## pty.exit
+
+A notification when the terminal ends, for any reason:
+
+```json
+{ "jsonrpc": "2.0", "method": "pty.exit", "params": { "ptyId": "pt_2m7q9x4c", "exitCode": 0, "signal": null } }
+```
+
+All output is sent before `pty.exit`. `exitCode` is `null` when a signal ended it.
+
+## Limits
+
+| | |
+| --- | --- |
+| Open terminals per session, across all connections | 8 |
+| Input | 1 MiB a second per terminal. More is dropped with a `-32000` `rate_limited` error on the next request. |
+
+| Error `data.code` | When |
+| --- | --- |
+| `feature_unavailable` | `capabilities.features.shell` is `false` |
+| `too_many_terminals` | 8 are already open in this session |
+| `pty_not_found` | The `ptyId` is not open on this connection |

@@ -1,0 +1,59 @@
+---
+title: "Troubleshooting"
+description: "When something is slow or wrong, start here."
+---
+
+Run `opc doctor` first. It checks each link in the chain, in order, and stops at the first that fails:
+
+```
+$ opc doctor
+✓ config        ~/.opencomputer/config.json                    1 ms
+✓ credential    igor-mbp · Igor Zalutski · acme                84 ms
+✓ api           https://app.opencomputer.dev                   (same request)
+✓ computer      ready                                          (same request)
+✓ ticket        expires in 9m58s                               79 ms
+✓ connection    wss://wire.opencomputer.app · LHR → IAD        168 ms
+✓ round trip    80 ms median, 94 ms p90 (20 pings)            1.6 s
+```
+
+## Common problems
+
+<AccordionGroup>
+  <Accordion title="opc: not logged in">
+    No credential in `OPENCOMPUTER_API_KEY` or in the configuration file. Run `opc login`. In CI, set `OPENCOMPUTER_API_KEY`. If you use `OPENCOMPUTER_CONFIG`, check that it points at the file you logged in with.
+  </Accordion>
+  <Accordion title="opc: the credential was rejected">
+    It was revoked, by `opc logout` or `opencomputer login --force` on this machine, or on the dashboard. Run `opc login`. A project-scoped API key cannot use Computer: create an organization key.
+  </Accordion>
+  <Accordion title="The status line says starting your computer for a long time">
+    Your organization's computer was asleep. Starting it takes seconds, longer the first time after a long break. If it takes more than two minutes, `opc doctor` reports the computer's state, and the dashboard shows it under **Computer**.
+  </Accordion>
+  <Accordion title="Every launch is slow, not just the first">
+    Run `opc --timing`. If `connection open` is several round trips, a proxy or VPN may be terminating TLS: set `NO_PROXY=wire.opencomputer.app` if your network allows it. If `agent start` says `cold` every time, your computer has no pre-started agents left, which happens when many sessions start at once.
+  </Accordion>
+  <Accordion title="Text arrives in bursts">
+    The connection is slow or losing packets. `opc` never shows wrong text: deltas it could not receive in time are skipped, and each block is redrawn complete when it ends. The status line shows `slow connection` when this happens often.
+  </Accordion>
+  <Accordion title="offline · retrying">
+    The connection dropped. `opc` reconnects with backoff, up to every 30 seconds, and catches up on everything it missed. Messages you send meanwhile are kept and sent once. Nothing is lost on the computer: the session keeps working without you.
+  </Accordion>
+  <Accordion title="session not found">
+    The id or prefix matches no session you can see. Sessions from Slack channels you are not in are hidden. Try `opc ls --all`, or the Slack thread link.
+  </Accordion>
+  <Accordion title="opc push: already exists and was not pushed by opc">
+    The name is taken by a repository or by something the agent created. Choose another with `--to`.
+  </Accordion>
+  <Accordion title="The agent cannot see my local changes">
+    `opc` does not read your machine. Push the directory with `opc push`, or commit and push your branch to GitHub so the agent can fetch it.
+  </Accordion>
+  <Accordion title="Keys like Alt+Enter or Ctrl+Enter do nothing">
+    Many terminals do not pass these on. Use `Ctrl+J` or end the line with `\` for a new line. On macOS Terminal, turn on **Use Option as Meta key**.
+  </Accordion>
+  <Accordion title="Colors or box characters look wrong">
+    Set `TERM` correctly, such as `xterm-256color`, and use a UTF-8 locale. `NO_COLOR=1` removes colors.
+  </Accordion>
+</AccordionGroup>
+
+## Reporting a problem
+
+`opc --verbose --timing` with the failing command prints what is needed. It never prints credentials or secret values, so it is safe to share. Include the session id from `/id` if a session was involved.

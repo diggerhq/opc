@@ -1,0 +1,81 @@
+---
+title: "Asks"
+description: "List, answer and dismiss approvals, questions and secret requests."
+---
+
+An open ask blocks its turn until a person answers it. Read [Asks in the model](/api/model#asks) for how they close, and [Ask](/api/reference/objects#ask) for their fields.
+
+Asks arrive as `ask.opened` events, and the session's `asks` lists those that are open. A program that only polls can check `status == "waiting"` on the session.
+
+## List asks
+
+```http
+GET /sessions/{id}/asks
+```
+
+| Query | Meaning |
+| --- | --- |
+| `status` | `open` (default), `answered`, `dismissed`, `interrupted`, or `all` |
+| `limit`, `cursor` | As for every list. Default 20. |
+
+Returns `{ "asks": [Ask…], "nextCursor" }`, newest first.
+
+## Answer an ask
+
+```http
+POST /sessions/{id}/asks/{askId}/answer
+```
+
+The body depends on the ask's `kind`.
+
+**Approval.**
+
+```json
+{ "decision": "deny", "message": "Not on staging today. Use the plan output instead." }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `decision` | `allow`, `deny`, or `always`: allow this call and the matching ones the ask's `always` describes, for the rest of the session. `always` is refused with `400 invalid_answer` when the ask's `always` is `null`. |
+| `message` | Optional, up to 2,000 characters. The agent reads it with the decision. Useful with `deny` to say what to do instead. |
+
+Allowing a plan, an approval whose `tool.name` is `ExitPlanMode`, also switches the session from `plan` mode to `default`, so the agent can carry it out. The `session.updated` event records the change.
+
+**Question.**
+
+```json
+{
+  "answers": [
+    { "questionId": "q1", "choices": ["Make the test wait for the debounce"], "text": null }
+  ]
+}
+```
+
+One entry per question, every question answered. `choices` are option labels, exactly as given. At most one unless the question has `multiSelect`. `text` is an answer in your own words, alone or with choices.
+
+**Secret.** A secret ask cannot be answered through this route, which would put the value in the session's history. [Set the secret](/api/http/secrets#set-a-secret) instead. Setting a secret with the ask's `name` that reaches the session answers the ask. This route returns `400 answer_with_secret`.
+
+The response is `200 { "ask": Ask }`, closed, with `closedBy` and `answer` set.
+
+| Status | Code | When |
+| --- | --- | --- |
+| `400` | `invalid_answer` | The answer does not fit the ask: a missing question, an unknown choice, too many choices. `error.field` says where. |
+| `400` | `answer_with_secret` | The ask is a secret ask |
+| `404` | `ask_not_found` | |
+| `409` | `ask_closed` | Someone else answered or dismissed it first, or its turn was interrupted. `error.ask` is the ask as it closed. |
+
+Answers are idempotent without a key: answering an ask again with the same answer, as the same person, returns `200` with the ask. A different answer gets `409 ask_closed`.
+
+## Dismiss an ask
+
+```http
+POST /sessions/{id}/asks/{askId}/dismiss
+```
+
+Closes the ask without an answer, as `dismissed`. The agent is told nobody answered, and decides how to go on: for an approval, as if denied. Works for every kind, including secret asks. The body is empty or `{ "message": "…" }`, which the agent reads.
+
+Returns `200 { "ask": Ask }`. Errors as for answering.
+
+## Answering an ask on a suspended session
+
+An ask stays open while its session is suspended. Answering it resumes the session, and the turn carries on from where it waited. The response returns before the resume completes.

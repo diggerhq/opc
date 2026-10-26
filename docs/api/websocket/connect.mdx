@@ -1,0 +1,104 @@
+---
+title: "Connecting"
+description: "Open a WebSocket, know when it is ready, keep it alive and reconnect without losing events."
+---
+
+One connection can watch and act in up to 20 sessions at once. `opc` opens one per process.
+
+## Open
+
+1. [Get a ticket](/api/http/tickets) over HTTP.
+2. Connect to its `url`, offering the protocol version and the ticket as subprotocols:
+
+```ts
+const ws = new WebSocket(url, ["opc.v1", `opc.ticket.${ticket}`]);
+```
+
+The server selects `opc.v1`, which you can check in `ws.protocol`. The ticket is read during the upgrade, so a connection that opens is already authenticated: there is no login message.
+
+3. The server's first message is `ready`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "ready",
+  "params": {
+    "connectionId": "wc_8d2k4m7q1x9v",
+    "server": { "version": "2026-10-26.1", "region": "iad" },
+    "limits": { "maxAttached": 20, "maxMessageBytes": 1048576, "maxRequestsPerSecond": 100 },
+    "expiresAt": "2026-10-26T10:01:03.004Z"
+  }
+}
+```
+
+`expiresAt` is when the server will close the connection with `4001`. `server.version` is for support requests: do not branch on it.
+
+You do not have to wait for `ready`. Requests sent right after the socket opens are answered in order after it. `opc` sends its `sessions.attach` in the same moment the socket opens, which saves a round trip on every launch.
+
+## Messages
+
+Every message is [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one per text frame. Batches are not supported.
+
+```json
+{ "jsonrpc": "2.0", "id": 7, "method": "turns.send", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "input": "also add a regression test", "mode": "steer" } }
+```
+
+```json
+{ "jsonrpc": "2.0", "id": 7, "result": { "turnId": "tn_4m8q2x7c1v9b", "status": "running", "delivery": "steered", "duplicate": false } }
+```
+
+- `id` is yours: a number or a string. Responses can come back in a different order than requests, so match on `id`.
+- The server sends notifications, which have no `id`: `ready`, `event`, `session.detached` and `pty.exit`. See [Methods](/api/websocket/methods#notifications).
+- Binary frames carry terminal data only. See [Terminals](/api/websocket/pty).
+- A message is at most 1 MiB.
+
+The response to a request is always sent before any event the request caused. When the response to `turns.send` arrives, you know the `turnId` before you see its `message.received`.
+
+## Keeping it alive
+
+The server sends a WebSocket ping every 30 seconds. Browsers and most libraries answer on their own. A connection that misses two is closed.
+
+To measure the round trip yourself, call `ping`. `opc --timing` shows the median of the last 20.
+
+```json
+{ "jsonrpc": "2.0", "id": 8, "method": "ping" }
+```
+
+## Close codes
+
+| Code | Means | Do |
+| --- | --- | --- |
+| `1000` | You closed it | |
+| `1001` | The server is going away | Reconnect at once |
+| `1011` | Server error | Reconnect with backoff |
+| `1012` | The server is restarting | Reconnect at once |
+| `4001` | The connection reached its one-hour lifetime | Reconnect with a new ticket. Better, reconnect before it. |
+| `4003` | The ticket is invalid, expired or revoked | Get a new ticket. If that fails with `401`, the key was revoked. |
+| `4008` | You read too slowly and fell too far behind | Reconnect and catch up from your last `seq`. See [Flow control](/api/websocket/flow-control). |
+| `4029` | Too many connections for this member: more than 50 | Close some |
+| `4400` | No supported protocol version was offered | Upgrade your client. `opc` exits with code `2`. |
+
+Close reasons are short text for logs. Branch on the code.
+
+## Reconnecting
+
+A connection holds nothing you cannot rebuild. To reconnect:
+
+1. Open a new connection, with a cached ticket if it has not expired.
+2. Attach to each session again with `after` set to the last `seq` you applied.
+
+You get exactly the events you missed, then live ones. Deltas sent while you were away are gone, but the completed blocks they belonged to are not.
+
+**Before `4001`.** About 5 minutes before `expiresAt`, open the new connection first, attach, and close the old one once the new one is attached. Events seen on both are skipped by `seq`. Nothing visible happens. `opc` does this.
+
+**After an unexpected close.** Retry at once, then after 250 ms, doubling up to 8 seconds, with up to 20% random jitter. Reset after a connection stays up for a minute. Show the person that you are reconnecting once it takes more than a second.
+
+## Without a library
+
+Any WebSocket client works. With `websocat`:
+
+```bash
+t=$(curl -s -X POST "$API/wire/tickets" -H "x-api-key: $OPENCOMPUTER_API_KEY")
+websocat --protocol "opc.v1, opc.ticket.$(jq -r .ticket <<<"$t")" "$(jq -r .url <<<"$t")"
+{"jsonrpc":"2.0","id":1,"method":"sessions.attach","params":{"sessionId":"cs_7f3a9k2m4q8r1t6v","deltas":true}}
+```

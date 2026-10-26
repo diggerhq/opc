@@ -1,0 +1,54 @@
+---
+title: "Timing"
+description: "What --timing measures, and the numbers to expect."
+---
+
+`opc` measures itself. `--timing` prints the measurements on exit, and `/timing` prints them in a session.
+
+```
+$ opc --timing
+…
+launch
+  process start → config read             3 ms
+  session create (API)                   84 ms   ┐ in parallel
+  connection open (TLS + upgrade)       171 ms   ┘
+  attach → session state                 82 ms
+  launch → ready                        257 ms
+  agent start                          warm · 11 ms
+last turn (tn_4m8q)
+  enter → accepted                       41 ms
+  enter → first token                  1.36 s
+    of which model                     1.31 s   (reported by the computer)
+  first token → last token             8.20 s
+  render, worst frame                    2 ms
+connection
+  round trip (median of last 20 pings)   80 ms
+  edge                                  LHR → IAD
+```
+
+| Measurement | From | To |
+| --- | --- | --- |
+| launch → ready | `opc` starting | The session's state received. You could type long before this. |
+| session create | The request leaving | Its response |
+| connection open | Starting the TLS handshake | The connection ready to use |
+| agent start | The computer starting the agent | The agent ready. `warm` means a pre-started agent was ready. `cold` adds about a second; `resumed` adds several. |
+| enter → accepted | `Enter` | The computer's acknowledgement |
+| enter → first token | `Enter` | The first character of the reply on screen |
+| of which model | The computer sending the request to the model | The model's first token, as the computer measured it |
+| render, worst frame | A screen update starting | It being written to the terminal |
+
+## What to expect
+
+On a warm computer, with a pre-started agent:
+
+| | Same region | Across an ocean |
+| --- | --- | --- |
+| launch → ready | about 100 ms | about 300 ms |
+| enter → first token | the model's time + about one round trip | the model's time + about one round trip |
+| a token → on screen | one frame, 16 ms at most | one frame |
+
+Slower than this is worth knowing about. The usual causes are a computer that was asleep, an agent started cold because none was pre-started, a session being resumed, or a proxy in the way. `opc doctor` shows which.
+
+## Where the numbers come from
+
+Every time is measured on your machine with a monotonic clock, except `of which model` and `agent start`, which the computer measures and sends with the events of the turn. The two clocks are never compared with each other.

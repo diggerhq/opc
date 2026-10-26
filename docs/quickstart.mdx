@@ -1,0 +1,69 @@
+---
+title: "Quickstart"
+description: "Install opc, log in and run your first session."
+---
+
+You need an OpenComputer organization with Computer set up. If your team uses Computer in Slack, you have one.
+
+<Steps>
+  <Step title="Install">
+    ```bash
+    curl -fsSL https://opencomputer.dev/opc/install.sh | sh
+    ```
+
+    Or with Homebrew: `brew install diggerhq/tap/opc`. See [Install](/install) for other platforms.
+  </Step>
+  <Step title="Log in">
+    ```bash
+    opc login
+    ```
+
+    `opc` prints a short code and opens your browser. Confirm the code there, and the terminal says who you are:
+
+    ```
+    ✓ Logged in as Igor Zalutski (igor@acme.dev) · acme
+      Credential "igor-mbp" saved to ~/.opencomputer/config.json
+    ```
+
+    If you already use the `opencomputer` CLI, you are logged in already: both read the same file.
+  </Step>
+  <Step title="Start a session">
+    ```bash
+    opc
+    ```
+
+    The prompt line appears at once. Type a task and press Enter:
+
+    ```
+    > what repositories do you have checked out, and which ones changed this week?
+    ```
+
+    Text streams in as the agent writes it. Tool calls appear as one-line cards. Press `Ctrl+O` to expand the last one.
+  </Step>
+  <Step title="Leave and come back">
+    Press `Ctrl+D` on an empty prompt, or `Ctrl+C` twice. The session keeps running on the computer:
+
+    ```
+    [detached from "repositories changed this week" · idle · opc a - to return]
+    ```
+
+    `opc a -` brings you back to it. `opc ls` lists your sessions.
+  </Step>
+</Steps>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Answer the agent's questions" href="/terminal/asks">
+    Approvals, choices and secrets, inline in the terminal.
+  </Card>
+  <Card title="Send it your local code" href="/cli/files">
+    `opc push` copies a directory into the session's workspace.
+  </Card>
+  <Card title="Run it from a script" href="/cli/scripting">
+    `opc -p "…"` runs one turn and prints the result.
+  </Card>
+  <Card title="Use it from CI" href="/cli/ci">
+    An API key in `OPENCOMPUTER_API_KEY` is all it takes.
+  </Card>
+</CardGroup>

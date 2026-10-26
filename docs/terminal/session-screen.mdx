@@ -1,0 +1,56 @@
+---
+title: "The session screen"
+description: "What opc draws, and how it fits in your terminal."
+---
+
+`opc` draws into your terminal's normal screen, not a full-screen overlay. Output scrolls like any other command's, and your terminal's scrollback, search and copy work as usual. When you leave, everything stays on screen above your prompt.
+
+```
+▸ cs 7f3a · flaky test in segment.test.ts · opus 5.5 · high · acceptEdits
+you   fix the flaky test in segment.test.ts and open a PR
+      I'll start by running the test a few times to see how it fails.
+  ✓ Bash  npm test -- segment.test.ts --repeat 20         4.1 s
+  ✓ Read  src/segment.ts                                   312 lines
+      The test depends on timer order. `flush()` runs before the
+      debounce settles when the machine is busy…
+  ⠋ Edit  src/segment.test.ts
+────────────────────────────────────────────────────────────────
+> │
+● running · 2 queued                                    ctrl+o details
+```
+
+From the top:
+
+- **The header** names the session, its model, effort and permission mode. It is printed once, when you attach, and again when a setting changes.
+- **The transcript** is the conversation. Your messages are marked `you`, messages from other people carry their name and where they wrote from (`Mo · slack`). The agent's text is indented beneath.
+- **Tool cards** are one line each: a status mark, the tool, a summary of its input and, when it ends, its duration or size. `⠋` is running, `✓` succeeded, `✗` failed.
+- **The prompt line** is where you type. It is live from the moment `opc` starts, even before the connection is up.
+- **The status line** under it says what the session is doing. See [Status line](/terminal/status-line).
+
+## Text as it arrives
+
+The agent's text appears as the model produces it, drawn on the next screen refresh, at most 16 ms later. Markdown is rendered as it streams: code blocks get a gutter, inline code and emphasis are styled, links are clickable in terminals that support them. A block is re-rendered once when it completes, so a table or list that streamed in pieces settles into its final layout.
+
+Reasoning is hidden by default. `Ctrl+T` shows it, dimmed, above the text it led to.
+
+## Tool cards
+
+A card shows the tool and the most useful part of its input: the command for `Bash`, the path for `Read` and `Edit`, the pattern for `Grep`. `Ctrl+O` expands the most recent card to show its full input and output, and again collapses it. `/details` expands every card in the turn.
+
+Subagents appear as a card with their own nested cards, collapsed to one line when they finish.
+
+## When you attach to a session with history
+
+`opc a` prints the session's earlier turns before the live part, so you see what led here. Long histories are summarized: the last three turns are printed in full and earlier ones as one line each. Your terminal's scrollback holds all of it.
+
+## Messages from elsewhere
+
+If someone writes in the Slack thread, or another terminal is attached, their messages appear in the transcript with their name, as they are received. Asks show who answered them. `opc` never hides activity from other clients.
+
+## Narrow terminals and plain output
+
+Lines wrap to the terminal width, and cards truncate their summary rather than wrap. Below 40 columns, the status line drops its right side.
+
+When standard output is not a terminal, `opc` does not draw this screen. It prints the transcript as plain text and exits when the turn ends, as `opc -p` does. See [Scripting](/cli/scripting).
+
+Colors follow your terminal's palette. `NO_COLOR=1` turns them off. `opc` uses 16 colors only, so themes look right in every terminal.

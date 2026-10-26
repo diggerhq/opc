@@ -1,0 +1,41 @@
+---
+title: "Exit codes"
+description: "What each exit code means, and the error codes printed with --json."
+---
+
+| Code | Meaning | Typical cause |
+| --- | --- | --- |
+| `0` | Success | |
+| `1` | The turn failed or was cancelled | The agent hit an error; someone interrupted it |
+| `2` | Usage error | An unknown option, a missing argument, an ambiguous session prefix, or a version of `opc` the server no longer supports |
+| `3` | Authentication | Not logged in; the credential was revoked; an API key without access to Computer |
+| `4` | Unreachable | No network; OpenComputer is down; your computer could not start |
+| `5` | Waiting for a person | An ask is open in the session |
+| `124` | Timed out | `--timeout` passed |
+| `130` | Interrupted | `Ctrl+C` |
+
+With `--json`, a failing command also prints one object to standard error:
+
+```json
+{ "error": { "code": "session_ambiguous", "message": "7f matches 3 sessions; use more characters", "matches": ["cs_7f3a…", "cs_7f9c…", "cs_7fk2…"] } }
+```
+
+| `code` | Exit | Meaning |
+| --- | --- | --- |
+| `usage` | 2 | The command line is wrong. `message` says how. |
+| `unsupported_version` | 2 | Upgrade `opc`. `minimumVersion` says to what. |
+| `session_ambiguous` | 2 | The prefix or words match several sessions. `matches` lists them. |
+| `session_not_found` | 2 | No session matches, or you cannot see it |
+| `not_logged_in` | 3 | No credential in the environment or the configuration file |
+| `unauthenticated` | 3 | The credential was rejected |
+| `forbidden` | 3 | The credential cannot use Computer, such as a project-scoped key |
+| `unreachable` | 4 | OpenComputer's API cannot be reached |
+| `computer_unavailable` | 4 | Your computer could not start or cannot be reached. `retryAfterMs` says when to retry, when known. |
+| `turn_failed` | 1 | The turn failed. `turnError` carries the [failure code](/api/reference/errors#turn-failures). |
+| `turn_cancelled` | 1 | The turn was cancelled. `reason` says why. |
+| `waiting` | 5 | An ask is open. `ask` carries it. |
+| `timeout` | 124 | `--timeout` passed |
+| `push_rejected` | 2 | A push was refused. `reason` is the API's code: `path_exists`, `invalid_path` or `too_large`. |
+| `pull_rejected` | 2 | A pull was refused. `reason` is `path_not_found`, `too_large`, or `destination_not_empty` when the local directory has files. |
+
+API error codes that are not listed here are passed through with exit code `4` for `5xx` responses and `2` otherwise.

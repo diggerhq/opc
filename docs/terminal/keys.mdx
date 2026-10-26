@@ -1,0 +1,58 @@
+---
+title: "Keys"
+description: "Every key opc responds to in a session."
+---
+
+`opc` keeps the keys of Claude Code and of your shell where they exist, so most of this page is what you already do.
+
+## Sending
+
+| Key | When | Does |
+| --- | --- | --- |
+| `Enter` | The agent is idle | Sends the message as a new turn |
+| `Enter` | A turn is running | Sends it into the running turn (`steer`): the agent reads it at its next step |
+| `Alt+Enter` or `Ctrl+J` | Any time | Inserts a new line |
+| `\` then `Enter` | Any time | Inserts a new line, for terminals that do not pass `Alt+Enter` |
+| `Ctrl+V` or your terminal's paste | Any time | Pastes. Pasted line breaks never send. A paste over 1,000 lines is collapsed to `[pasted 1,204 lines]` in the prompt and sent in full. |
+
+To queue a message as its own turn after the running one, instead of steering, start it with `/queue`. See [Slash commands](/terminal/slash-commands).
+
+Your message is drawn in the transcript the moment you press `Enter`, marked `sending`. The mark disappears when the computer has accepted it. If the connection is down, the message waits and is sent when it comes back, once: every message carries a key that makes a resend harmless.
+
+## Stopping and leaving
+
+| Key | Does |
+| --- | --- |
+| `Esc` | Interrupts the running turn and cancels queued messages. The text of cancelled messages comes back into the prompt line, so nothing you typed is lost. |
+| `Ctrl+C` | Clears the prompt line. On an empty prompt line, shows `press Ctrl+C again to detach`. |
+| `Ctrl+C` twice | Detaches. The session keeps running. |
+| `Ctrl+D` on an empty prompt line | Detaches |
+| `Ctrl+Z` | Suspends `opc` in your shell, as for any program. `fg` returns. The session is not affected. |
+
+Detaching never stops the agent. To stop it, press `Esc` first.
+
+## Editing and history
+
+| Key | Does |
+| --- | --- |
+| `←` `→`, `Ctrl+A`, `Ctrl+E`, `Alt+B`, `Alt+F` | Move in the line, as in your shell |
+| `Ctrl+W`, `Ctrl+U`, `Ctrl+K` | Delete a word back, to the start, to the end |
+| `↑` `↓` | Previous and next message from your history. On a multi-line message, move between lines first. |
+| `Ctrl+R` | Search your history |
+| `Ctrl+X Ctrl+E` | Edit the message in `$VISUAL` or `$EDITOR` |
+| `Tab` | Completes slash commands, their arguments and file names in [`/push`](/terminal/slash-commands#push) |
+
+History is kept per machine, in `~/.opencomputer/opc/history`, across sessions. It holds what you typed, never what the agent wrote.
+
+## Looking around
+
+| Key | Does |
+| --- | --- |
+| `Ctrl+O` | Expands or collapses the most recent tool card |
+| `Ctrl+T` | Shows or hides the agent's reasoning |
+| `Ctrl+L` | Redraws the screen |
+| `?` on an empty prompt line | Shows this table |
+
+## When an ask is open
+
+An open ask takes the keyboard until it is answered. Its keys are on the ask itself and on [Asks](/terminal/asks). `Tab` moves to the prompt line and back, so you can write a message while an ask is open. It is held, and reaches the agent together with the answer. `Esc` still interrupts the turn, which also closes the ask.

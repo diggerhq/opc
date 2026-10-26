@@ -1,0 +1,61 @@
+---
+title: "Control"
+description: "Interrupt, compact, suspend and resume a session."
+---
+
+These routes act on the session as a whole. Each returns `200 { "session": Session }` after the action is recorded, and each is safe to repeat: doing it again when there is nothing to do returns `200` and changes nothing.
+
+## Interrupt
+
+```http
+POST /sessions/{id}/interrupt
+```
+
+Stops the running turn and cancels every queued turn. What `Esc` does in `opc`.
+
+- The running turn ends as `cancelled` with reason `interrupted`, and so does each queued one, in order.
+- Open asks close as `interrupted`.
+- A tool that was running is stopped. Files it had already changed stay changed.
+- The response returns when the turn has stopped, usually within a second. If the agent does not stop within 10 seconds, its process is restarted and the turn is cancelled anyway: the response then has `"forced": true`.
+
+With nothing running, it does nothing. The cancelled turns' inputs are in their `turn.cancelled` events, so a client can offer them again, as `opc` does by putting them back in the prompt.
+
+To interrupt and send a new message in one request, [send it](/api/http/turns#send-a-message) with `mode: "interrupt"`.
+
+## Compact
+
+```http
+POST /sessions/{id}/compact
+```
+
+Replaces the conversation so far with a summary, freeing context. The agent keeps working from the summary. `opc` runs it with `/compact`, and the agent compacts on its own when the context is nearly full.
+
+| Field | Meaning |
+| --- | --- |
+| `instructions` | Optional. What the summary must keep, such as `keep the list of failing tests` |
+
+Compacting runs as its own turn: queued behind a running one, or started at once when idle. The response is `202 { "turnId", "status", "delivery", "duplicate" }`, like sending a message. The turn's events include `session.compacted` with the context before and after.
+
+`409 feature_unavailable` when `capabilities.features.compact` is `false`.
+
+## Suspend
+
+```http
+POST /sessions/{id}/suspend
+```
+
+Stops the agent process now, rather than after two hours idle. The conversation, the workspace and open asks are kept. The next message resumes the session.
+
+`409 session_busy` while a turn is running. Interrupt it first, or wait.
+
+An open [shell](/api/websocket/pty) is closed.
+
+## Resume
+
+```http
+POST /sessions/{id}/resume
+```
+
+Starts the agent process of a suspended session, without sending anything. Sending a message resumes the session anyway, so this is only to save the wait: `opc` calls it when you attach to a suspended session, so the agent is ready by the time you finish typing.
+
+Returns as soon as the resume has started, with `status: "starting"`. `runtime.resumed` follows when it is ready. On a session that is not suspended, it does nothing.

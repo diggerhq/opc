@@ -1,0 +1,47 @@
+---
+title: "Environment and files"
+description: "Environment variables, the configuration file and what opc keeps on your machine."
+---
+
+## Environment variables
+
+| Variable | Does |
+| --- | --- |
+| `OPENCOMPUTER_API_KEY` | The credential to use. Takes precedence over the configuration file. |
+| `OPENCOMPUTER_API_URL` | The API's base URL. Default `https://app.opencomputer.dev`. |
+| `OPENCOMPUTER_CONFIG` | Path of the configuration file. Default `~/.opencomputer/config.json`. |
+| `OPC_STATE_DIR` | Where `opc` keeps its own state. Default `~/.opencomputer/opc`. |
+| `OPC_LOG` | `error`, `warn`, `info` or `debug`. Logs go to standard error. Default `warn`. |
+| `NO_COLOR` | Any value turns colors off |
+| `VISUAL`, `EDITOR` | The editor for `Ctrl+X Ctrl+E` |
+| `BROWSER` | The program `opc login` and `--web` open links with |
+| `HTTPS_PROXY`, `NO_PROXY` | An HTTP proxy for every connection `opc` makes, including the session connection |
+
+`OPENCOMPUTER_*` variables are shared with the `opencomputer` CLI.
+
+## The configuration file
+
+`~/.opencomputer/config.json`, shared with the `opencomputer` CLI, written with permissions `0600`:
+
+```json
+{
+  "apiUrl": "https://app.opencomputer.dev",
+  "apiKey": "…",
+  "login": { "credentialId": "cred_…", "keyPrefix": "…", "name": "igor-mbp" }
+}
+```
+
+`opc login` writes it and `opc logout` clears it. There is nothing in it to edit by hand.
+
+## What opc keeps on your machine
+
+Under `~/.opencomputer/opc/`, or `OPC_STATE_DIR`:
+
+| File | Holds | Safe to delete |
+| --- | --- | --- |
+| `state.json` | The last session you attached to, for `opc a -`, `push` and `pull` | Yes |
+| `sessions.json` | The session list from the last `opc ls` or picker, so the picker and completions open instantly | Yes |
+| `history` | What you typed at the prompt line, for `↑` and `Ctrl+R`. At most 10,000 entries. | Yes |
+| `tickets.json` | Connection tickets, valid 10 minutes, `0600` | Yes |
+
+`opc` never writes anywhere else, never stores what the agent wrote, and sends no analytics. The server records which client a request came from, such as `opc/0.1.0`, as every API does.

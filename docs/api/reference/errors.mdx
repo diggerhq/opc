@@ -1,0 +1,84 @@
+---
+title: "Errors"
+description: "Every error code, over HTTP and WebSocket, and how turns fail."
+---
+
+## Shape
+
+Over HTTP, an error is a status and a body:
+
+```json
+{ "error": { "code": "ask_closed", "message": "This ask was already answered.", "ask": { "…": "…" } } }
+```
+
+Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `status` added. See [Methods](/api/websocket/methods#errors).
+
+- **`code`** is stable and snake_case. Branch on it.
+- **`message`** is one sentence for people. It can change. Do not parse it.
+- Some codes add fields, listed below. Unknown fields may appear.
+
+Every response, including errors, has an `x-request-id` header. Include it when you contact support.
+
+## Codes
+
+| Status | Code | Extra fields | Means |
+| --- | --- | --- | --- |
+| `400` | `invalid_request` | `field` | A parameter is missing, has the wrong type or is out of range |
+| `400` | `unknown_model` | | The model is not in `capabilities.models` |
+| `400` | `unsupported_effort` | | The model does not accept that effort |
+| `400` | `invalid_answer` | `field` | An answer does not fit its ask |
+| `400` | `answer_with_secret` | | A secret ask is answered by [setting the secret](/api/http/secrets) |
+| `400` | `invalid_path` | | A workspace path is absolute, contains `..`, or is not a valid upload name |
+| `400` | `invalid_archive` | `entry` | An upload is not a tar archive, or has a refused entry |
+| `400` | `invalid_cursor` | | The cursor is unreadable, or was made with other filters |
+| `401` | `unauthenticated` | | No key, an unknown key or a revoked one |
+| `402` | `insufficient_credits` | | Your organization is out of credits |
+| `403` | `forbidden` | `reason` | The key may not do this. `reason: "project_key"` for a project-scoped key. |
+| `403` | `mode_not_allowed` | | Your organization does not allow that permission mode |
+| `403` | `admin_required` | | Only admins can do this |
+| `404` | `not_found` | | No such route |
+| `404` | `session_not_found` | | No such session, or you cannot see it |
+| `404` | `turn_not_found`, `ask_not_found`, `path_not_found`, `secret_not_found`, `pty_not_found` | | |
+| `409` | `idempotency_conflict` | | The key was used for a different request |
+| `409` | `ask_closed` | `ask` | The ask already closed. `ask` shows how and by whom. |
+| `409` | `session_busy` | | A turn is running, and the action needs none |
+| `409` | `path_exists` | | An upload's name exists and was not uploaded |
+| `409` | `feature_unavailable` | `feature` | The session's `capabilities.features` lacks it |
+| `409` | `computer_not_set_up` | | Finish setting up your computer on the dashboard |
+| `413` | `too_large` | `bytes`, `files` | Over a [limit](/api/reference/limits) |
+| `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. |
+| `429` | `queue_full` | | 20 turns are already queued |
+| `500` | `internal` | | Our fault. Retry with the same idempotency key. |
+| `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting or being updated. Retry. |
+| `503` | `unavailable` | `retryAfterMs` | A temporary failure. Retry. |
+
+The WebSocket adds `too_far_behind`, `too_many_attached` and `too_many_terminals`, which have no HTTP status of their own. They are sent as `409`.
+
+## What to retry
+
+| | Retry? |
+| --- | --- |
+| `429`, `500`, `503`, a timeout, a dropped connection | Yes, after `retryAfterMs` or with backoff, with the same idempotency key |
+| `409 idempotency_conflict` | No: you reused a key by mistake. Use a new key. |
+| Any other `4xx` | No: the request will fail the same way |
+
+## Turn failures
+
+A turn that fails has an error in its `turn.failed` event, in the turn's `error` and in the session's `lastTurn.error`: `{ code, message }` and at most one more field. The session stays usable after any of them.
+
+| `code` | Means | Field |
+| --- | --- | --- |
+| `model_rejected` | The model provider refused the request: credentials, quota or content policy | |
+| `model_unavailable` | The model is no longer available to your organization | `model` |
+| `model_stream_failed` | The model call broke off, and its retry failed too | `model` |
+| `context_too_long` | The conversation does not fit the model's context, even after compacting | |
+| `runtime_lost` | The agent process stopped responding, and the turn was abandoned | |
+| `runtime_failed` | The agent process failed before the turn finished | |
+| `tool_failed` | A tool failed in a way the agent could not recover from | `tool` |
+| `agent_failed` | Any other failure | |
+
+These codes are those of OpenComputer's serverless agents, so one client can read both. An interrupted turn does not fail: it ends as `cancelled`.
+
+<Note>
+A rate limit from the model provider is not a failure. The call is retried, and each wait is a `model.rate_limited` event. The turn fails with `model_rejected` only when retrying gives up.
+</Note>

@@ -1,0 +1,100 @@
+---
+title: "Methods"
+description: "Every WebSocket method, its parameters, its result and its notifications."
+---
+
+Each method does what the HTTP route of the same name does, with the same parameters and the same result object. The difference is `sessions.attach`, which only the WebSocket has. Every session method takes `sessionId`.
+
+| Method | HTTP equivalent |
+| --- | --- |
+| [`sessions.attach`](#attach) | none: live events |
+| [`sessions.detach`](#detach) | none |
+| `sessions.get` | [`GET /sessions/{id}`](/api/http/sessions#get-a-session) |
+| `sessions.update` | [`PATCH /sessions/{id}`](/api/http/sessions#update-a-session) |
+| `sessions.interrupt`, `sessions.compact`, `sessions.suspend`, `sessions.resume` | [Control](/api/http/control) |
+| [`turns.send`](#send) | [`POST /sessions/{id}/turns`](/api/http/turns#send-a-message) |
+| `asks.answer`, `asks.dismiss` | [Asks](/api/http/asks), with `askId` |
+| [`pty.open`, `pty.resize`, `pty.close`, `pty.eof`](/api/websocket/pty) | none |
+| `ping` | none |
+
+Creating and listing sessions, files, secrets and tickets are HTTP only. They are not on the path of anything a person waits for keystroke by keystroke.
+
+## Attach
+
+Starts sending a session's events to this connection.
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "method": "sessions.attach", "params": { "sessionId": "cs_7f3a9k2m4q8r1t6v", "after": 1180, "deltas": true } }
+```
+
+| Param | Meaning |
+| --- | --- |
+| `sessionId` | |
+| `after` | Optional. Also send recorded events with a `seq` greater than this, before live ones. Omit to get only what happens from now. |
+| `deltas` | Optional, default `false`. Also send [deltas](/api/reference/events#text): text as it is written, and tool output as it is produced. |
+
+The result is the session, current as of the moment you attached:
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "result": { "session": { "id": "cs_7f3a9k2m4q8r1t6v", "lastSeq": 1184, "…": "…" } } }
+```
+
+Then `event` notifications follow, in `seq` order, with no gap and no repeat:
+
+1. With `after`: every recorded event from `after + 1` to the session's `lastSeq`
+2. With `deltas` and a block being written right now: one delta holding that block's text so far
+3. Live events, as they happen
+
+So a client that sets `after` to its last applied `seq` misses nothing, and one that starts from the `session` in the result and omits `after` misses nothing either.
+
+Attaching to a suspended session does not resume it: watching costs nothing. Send a message, or call `sessions.resume`, to start it. `opc` calls `sessions.resume` in the background as soon as it attaches to a suspended session.
+
+Attaching again to a session already attached replaces the earlier attachment's options.
+
+| Error `data.code` | When |
+| --- | --- |
+| `session_not_found` | It does not exist, or you cannot see it |
+| `too_far_behind` | `after` is more than 10,000 events back. Read them over [HTTP](/api/http/events) first. |
+| `too_many_attached` | This connection already has 20 sessions attached |
+
+## Detach
+
+Stops sending a session's events. `{ "sessionId" }`. The result is `{}`. Events already sent may still arrive after it.
+
+## Send
+
+`{ sessionId, input, mode?, idempotencyKey? }`. The result is the [send receipt](/api/http/turns#send-a-message).
+
+`idempotencyKey` does what the `Idempotency-Key` header does over HTTP. Send one with every message: after a reconnect you cannot know whether a request sent just before the drop arrived, and resending with the same key is safe. Keys are shared between HTTP and WebSocket. See [Idempotency](/api/reference/idempotency).
+
+`mode` defaults to `queue`, as over HTTP.
+
+## Notifications
+
+| Method | Params | Sent |
+| --- | --- | --- |
+| `ready` | `connectionId`, `server`, `limits`, `expiresAt` | Once, first |
+| `event` | An [event](/api/reference/events) | For each event of each attached session |
+| `session.detached` | `sessionId`, `reason`: `access_lost` | When you can no longer see an attached session, such as after leaving its Slack channel |
+| `pty.exit` | `ptyId`, `exitCode`, `signal` | When a [terminal](/api/websocket/pty) ends |
+
+## Errors
+
+Errors follow JSON-RPC 2.0:
+
+```json
+{
+  "jsonrpc": "2.0", "id": 7,
+  "error": { "code": -32000, "message": "Ask already answered", "data": { "code": "ask_closed", "status": 409, "ask": { "…": "…" } } }
+}
+```
+
+| `code` | Means |
+| --- | --- |
+| `-32700` | The frame is not JSON |
+| `-32600` | Not a valid JSON-RPC request |
+| `-32601` | Unknown method |
+| `-32602` | Invalid params. `data.field` names the param. |
+| `-32000` | Any API error. `data.code` and `data.status` are exactly what the HTTP route would return, with the same extra fields. |
+
+Branch on `data.code`, which is the same over HTTP and WebSocket. See [Errors](/api/reference/errors).
