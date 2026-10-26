@@ -1245,7 +1245,11 @@ impl<'a> App<'a> {
                 v.dedup();
                 v.into_iter().map(|e| (e.clone(), e)).collect()
             }
-            _ => caps.modes.iter().map(|m| (m.clone(), m.clone())).collect(),
+            _ => caps
+                .modes
+                .iter()
+                .map(|m| (m.clone(), crate::ui::model::mode_choice(m)))
+                .collect(),
         }
     }
 

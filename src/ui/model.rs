@@ -409,16 +409,14 @@ impl Model {
         {
             return n.to_lowercase();
         }
-        id.strip_prefix("claude-").unwrap_or(&id).to_string()
+        pretty_model(&id)
     }
 
-    /// `▸ 7f3a · flaky test in segment.test.ts · opus 5.5 · high · acceptEdits`
+    /// `▸ flaky test in segment.test.ts · 7f3a · opus 5.5 · high · accept edits`: the title
+    /// stands out, the rest is the session's settings, dim. The usual permission mode is left out.
     pub fn header_line(&self) -> TLine {
         let mid = format!(" {} ", g().mid);
         let mut parts = vec![crate::ids::short(&self.session_id).to_string()];
-        if !self.title.trim().is_empty() {
-            parts.push(self.title.clone());
-        }
         let m = self.model_name();
         if !m.is_empty() {
             parts.push(m);
@@ -426,14 +424,19 @@ impl Model {
         if let Some(e) = &self.settings.effort {
             parts.push(e.clone());
         }
-        if let Some(m) = &self.settings.mode {
-            parts.push(m.clone());
+        if let Some(m) = self.settings.mode.as_deref().and_then(mode_label) {
+            parts.push(m);
         }
         let mut l = TLine::row(0).s(format!("{} ", g().head), Sty::Accent);
-        l.push(parts.remove(0), Sty::Bold);
-        for p in parts {
-            l.push(mid.clone(), Sty::Dim);
-            l.push(p, Sty::Plain);
+        let title = !self.title.trim().is_empty();
+        if title {
+            l.push(self.title.clone(), Sty::Bold);
+        }
+        for (i, p) in parts.into_iter().enumerate() {
+            if title || i > 0 {
+                l.push(mid.clone(), Sty::Dim);
+            }
+            l.push(p, Sty::Dim);
         }
         l
     }
@@ -865,13 +868,16 @@ impl Model {
                 }
                 "model" | "effort" | "mode" => {
                     let from = ch.get("from").and_then(Value::as_str).unwrap_or("").to_string();
-                    let before = if field == "model" { self.model_name() } else { from.clone() };
+                    let label = |v: &str| {
+                        if field == "mode" { mode_label(v).unwrap_or_else(|| "usual permissions".into()) } else { v.to_string() }
+                    };
+                    let before = if field == "model" { self.model_name() } else { label(&from) };
                     match field.as_str() {
                         "model" => self.settings.model = to_s.clone(),
                         "effort" => self.settings.effort = to_s.clone(),
                         _ => self.settings.mode = to_s.clone(),
                     }
-                    let after = if field == "model" { self.model_name() } else { to_s.clone().unwrap_or_default() };
+                    let after = if field == "model" { self.model_name() } else { label(to_s.as_deref().unwrap_or_default()) };
                     let when = if self.turn.is_some() && field != "mode" { ", from the next turn" } else { "" };
                     self.note(&format!("{field}: {before} {} {after}{when}", g().arrow));
                     settings_changed = true;
@@ -1846,8 +1852,10 @@ impl Model {
                 }
             }
         };
+        // Only a state that asks for attention is as bright as the conversation.
+        let label_sty = if matches!(sty, Sty::Dim) { Sty::Dim } else { Sty::Plain };
         left.push(Seg::new(format!("{glyph} "), sty));
-        left.push(Seg::new(label, Sty::Plain));
+        left.push(Seg::new(label, label_sty));
         let mut details = Vec::new();
         let q = self.queued.len();
         if q > 0 {
@@ -1912,6 +1920,41 @@ impl Model {
             &self.status
         }
     }
+}
+
+/// A permission mode in words; None for the usual one (a Computer runs with bypassPermissions).
+pub fn mode_label(mode: &str) -> Option<String> {
+    let l = match mode {
+        "" | "default" | "bypassPermissions" => return None,
+        "plan" => "plan mode",
+        "acceptEdits" => "accept edits",
+        "dontAsk" => "don't ask",
+        other => other,
+    };
+    Some(l.to_string())
+}
+
+/// A permission mode as a choice in the /mode list.
+pub fn mode_choice(mode: &str) -> String {
+    match mode {
+        "bypassPermissions" => "no approvals (usual)".into(),
+        "default" => "ask before acting".into(),
+        m => mode_label(m).unwrap_or_default(),
+    }
+}
+
+/// `claude-opus-5-5` and `opus-5-5` as `opus 5.5`; other ids as they are.
+pub fn pretty_model(id: &str) -> String {
+    let id = id.strip_prefix("claude-").unwrap_or(id);
+    let mut words = id.split('-');
+    let Some(name) = words.next() else {
+        return id.to_string();
+    };
+    let nums: Vec<&str> = words.collect();
+    if nums.is_empty() || nums.len() > 2 || !nums.iter().all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+        return id.to_string();
+    }
+    format!("{name} {}", nums.join("."))
 }
 
 struct Ending {
@@ -2254,5 +2297,15 @@ mod tests {
         }
         let _ = m.live(0);
         let _ = m.status(0);
+    }
+
+    #[test]
+    fn settings_read_as_words() {
+        assert_eq!(pretty_model("claude-opus-5-5"), "opus 5.5");
+        assert_eq!(pretty_model("claude-haiku-5"), "haiku 5");
+        assert_eq!(pretty_model("gpt-5.1-codex"), "gpt-5.1-codex");
+        assert_eq!(mode_label("bypassPermissions"), None);
+        assert_eq!(mode_label("plan").as_deref(), Some("plan mode"));
+        assert_eq!(mode_choice("default"), "ask before acting");
     }
 }

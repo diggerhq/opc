@@ -21,6 +21,11 @@ struct Pty {
 
 impl Pty {
     fn spawn(fake: &Fake, args: &[&str]) -> Pty {
+        Pty::spawn_with(fake, args, &[])
+    }
+
+    /// As `spawn`, without the fake's variables named in `unset`.
+    fn spawn_with(fake: &Fake, args: &[&str], unset: &[&str]) -> Pty {
         let (mut m, mut s) = (0, 0);
         let mut ws = libc::winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
         // SAFETY: openpty fills in two descriptors we then own.
@@ -31,7 +36,9 @@ impl Pty {
         let mut c = Command::new(env!("CARGO_BIN_EXE_opc"));
         c.args(args).env_remove("OPC_LOG").env("TERM", "xterm-256color");
         for (k, v) in fake.env() {
-            c.env(k, v);
+            if !unset.contains(&k.as_str()) {
+                c.env(k, v);
+            }
         }
         c.stdin(Stdio::from(slave.try_clone().unwrap())).stdout(Stdio::from(slave.try_clone().unwrap())).stderr(Stdio::from(slave));
         // SAFETY: only async-signal-safe calls between fork and exec.
@@ -372,4 +379,32 @@ fn telemetry_measures_an_answer_and_an_interrupt() {
     assert_eq!(c[0]["data"]["kind"], "interrupt");
     assert_eq!(c[0]["data"]["ok"], true);
     assert!(c[0]["data"]["applied_ms"].is_u64(), "{}", c[0]);
+}
+
+/// Not a check: writes what the screen looks like, raw, to `$OPC_SCREEN_OUT`
+/// (render it with any terminal emulator) for design review.
+/// `OPC_SCREEN_OUT=/tmp/s.ansi cargo test --test tui screen_dump -- --ignored`
+#[test]
+#[ignore]
+fn screen_dump() {
+    let Ok(out) = std::env::var("OPC_SCREEN_OUT") else {
+        return;
+    };
+    let fake = Fake::start();
+    let sid = fake.seed_session(
+        Seed::new("fix the flaky test in segment.test.ts")
+            .mode("bypassPermissions")
+            .model("claude-opus-5-5", "high"),
+    );
+    let mut p = Pty::spawn_with(&fake, &["a", &sid], &["NO_COLOR"]);
+    p.wait_for("type a message");
+    std::thread::sleep(Duration::from_millis(300));
+    p.keys(b"tool\r");
+    p.wait_reply("tool done");
+    std::thread::sleep(Duration::from_millis(200));
+    p.keys(b"reply The test is **flaky** because `segment.test.ts` races the timer. I made it use fake timers and it passed 50 runs.\r");
+    p.wait_reply("passed 50 runs");
+    assert!(fake.wait_idle(&sid, T));
+    std::thread::sleep(Duration::from_millis(500));
+    std::fs::write(out, &*p.out.lock().unwrap()).unwrap();
 }
