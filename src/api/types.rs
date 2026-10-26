@@ -358,6 +358,11 @@ impl Delta {
     pub fn kind(&self) -> &str {
         self.0.get("type").and_then(Value::as_str).unwrap_or("")
     }
+    /// Printed by `--include-partial-messages`: text and reasoning as they stream, a tool call
+    /// while the model writes it (`tool.preparing`) and a running tool's output (`tool.delta`).
+    pub fn partial(&self) -> bool {
+        matches!(self.kind(), "message.delta" | "reasoning.delta" | "tool.preparing" | "tool.delta")
+    }
     pub fn session_id(&self) -> &str {
         self.0.get("sessionId").and_then(Value::as_str).unwrap_or("")
     }

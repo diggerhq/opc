@@ -85,7 +85,7 @@ The Result:
 
 `status` is `completed`, `failed`, `cancelled` or `waiting`, and `subtype` is `success`, `error`, `cancelled` or `waiting` to match. With `failed`, `error` holds the [turn failure](/api/reference/errors#turn-failures). With `cancelled`, `reason` says why. With `waiting`, `ask` holds the open [ask](/api/reference/objects#ask). `usage` is the turn's `usage`, and `turn` is the whole [Turn](/api/reference/objects#turn).
 
-`stream-json` prints recorded events only. Add `--include-partial-messages` to also print text as it streams, as `message.delta` and `reasoning.delta` lines.
+`stream-json` prints recorded events only. Add `--include-partial-messages` to also print what streams: text and reasoning as `message.delta` and `reasoning.delta` lines, a tool call while the model writes it as `tool.preparing`, and a running tool's output as `tool.delta`.
 
 **The output contract.** The outcome of a turn, whatever it is, is the Result on standard output. A failure of the command itself, such as a usage error, a rejected credential or an unreachable computer, is `{"error": …}` on standard error, and in `stream-json` also a last line `{"type":"result","subtype":"error","isError":true,"error":{…}}` on standard output, so a reader of the stream always gets one. Errors are JSON whenever any JSON format is selected. See [Exit codes](/reference/exit-codes).
 

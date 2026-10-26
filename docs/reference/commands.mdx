@@ -50,7 +50,7 @@ Starts a new session. With a message, sends it. With `-p`, runs one turn non-int
 | `--idempotency-key <k>` | With `-p`: a repeat re-attaches to the original turn and waits for it |
 | `--output-format <format>` | With `-p`: `text`, `json` or `stream-json` |
 | `--json` | With `-p`: short for `--output-format json` |
-| `--include-partial-messages` | With `stream-json`: also print text deltas |
+| `--include-partial-messages` | With `stream-json`: also print deltas: text, reasoning, tool calls being written and tool output |
 | `--on-ask <action>` | With `-p`: what to do when an ask opens. `fail` (default) exits `5`; `dismiss` dismisses it and carries on; `wait` waits for someone to answer elsewhere. |
 | `--timeout <duration>` | With `-p`: give up after this long, exit `124` |
 | `--interrupt-on-timeout` | With `--timeout`: interrupt the turn before exiting |
@@ -181,7 +181,7 @@ Prints a session's activity, read-only, until it is idle or waiting, and exits a
 | `--follow` | Keep watching across turns until interrupted |
 | `--timeout <duration>` | Give up after this long, exit `124` |
 | `--output-format <format>` | `text`, `json` for the Result of the last turn it saw end, or `stream-json` |
-| `--include-partial-messages` | With `stream-json`: also print text deltas |
+| `--include-partial-messages` | With `stream-json`: also print deltas: text, reasoning, tool calls being written and tool output |
 
 ## opc interrupt
 
