@@ -36,7 +36,7 @@ jobs:
           bin="target/${{ matrix.target }}/release/opc"
           if [[ "${{ matrix.target }}" == *musl ]]; then
             # Static, or the release is wrong.
-            file "$bin" | tee /dev/stderr | grep -q 'statically linked'
+            file "$bin" | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
           fi
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-musl|aarch64-unknown-linux-musl|aarch64-apple-darwin) "$bin" --version ;;
