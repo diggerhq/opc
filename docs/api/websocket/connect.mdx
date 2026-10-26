@@ -126,10 +126,10 @@ A connection the server refuses is still accepted, then closed at once with one 
 | Code | Means | Do |
 | --- | --- | --- |
 | `1000` | You closed it | |
-| `1001` | The server is going away, or you missed two pings | Reconnect at once |
+| `1001` | The server is going away, or you missed two pings | Reconnect after a random wait of up to 250 ms, then with backoff if it closes again |
 | `1009` | You sent a message over 1 MiB | Reconnect. Do not resend that message. |
 | `1011` | Server error | Reconnect with backoff |
-| `1012` | The server is restarting | Reconnect at once |
+| `1012` | The server is restarting | Reconnect after a random wait of up to 250 ms, then with backoff if it closes again |
 | `4001` | The credential expired or was revoked, or a ticket connection reached its one-hour lifetime | With a ticket, reconnect with a new one, better before `expiresInMs`. With a key, check it: a request with it fails with `401` if it was revoked. |
 | `4003` | Forbidden: the ticket is invalid, the credential may not use the computer, or the upgrade carried both a ticket and a key (reason `ticket_and_key`) | Send one credential. Get a new ticket. If that fails with `401`, the key was revoked. |
 | `4008` | You stopped reading, and more than 16 MiB waited to be sent | Reconnect and catch up. See [Flow control](/api/websocket/flow-control#after-4008). |
@@ -150,7 +150,7 @@ You get exactly the events you missed, then live ones. Deltas sent while you wer
 
 **Before `4001`.** For a ticket connection, about 5 minutes before it expires, open the new connection first, attach, and close the old one once the new one is attached. Events seen on both are skipped by `seq`. Nothing visible happens. `opc` does this.
 
-**After an unexpected close.** Reconnect at once when the network changes, the machine wakes, or the person acts, such as pressing `Enter`. Otherwise retry at once, then after 250 ms, doubling up to 8 seconds, with up to 20% random jitter. Reset after a connection stays up for a minute. Show the person that you are reconnecting once it takes more than a second.
+**After an unexpected close.** Reconnect at once when the network changes, the machine wakes, or the person acts, such as pressing `Enter`. Otherwise retry at once, then after 250 ms, doubling up to 8 seconds, with up to 20% random jitter. A server's `Retry-After` on a refused upgrade, or `retryAfterMs` in a close reason, is a longer wait when it is longer; `opc` honours it up to 30 seconds. Reset after a connection stays up for a minute. Show the person that you are reconnecting once it takes more than a second.
 
 ## Without a library
 

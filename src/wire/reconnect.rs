@@ -14,7 +14,10 @@
 //!   one (writes carry an idempotency key, so a repeat is harmless), except
 //!   after `1009 message too big`;
 //! - a session too far behind (`too_far_behind`, close `4008`) is paged over
-//!   HTTP until it is within 10 000 events, then attached.
+//!   HTTP until it is within 10 000 events, then attached; one the server
+//!   cannot bring up to date (the events after its cursor are gone, or it is
+//!   refused again and again without moving) starts again from its tail,
+//!   after an [`WireEvent::EpochReset`] at its cursor.
 
 use super::client::{self, Frame};
 use super::{Attach, AttachInfo, WireEvent, WireOptions};
@@ -46,6 +49,17 @@ const BACKOFF_MAX: Duration = Duration::from_secs(8);
 const STABLE: Duration = Duration::from_secs(60);
 /// How long a dial may take before it counts as failed.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// A server's wait (`Retry-After`, `retryAfterMs`) is honoured up to this.
+const HINT_MAX: Duration = Duration::from_secs(30);
+/// Paging rounds in a row that leave a session where it was before it goes
+/// to its tail instead.
+const PAGE_STALLS: u32 = 6;
+/// A connection whose credential ends sooner than this is not replaced: the
+/// replacement would end with it.
+const EXPIRY_MIN: Duration = Duration::from_secs(60);
+/// A `4001` close that `/me` contradicts is retried this long (the edge sees a
+/// key's changes within 60 s), then is fatal.
+const REFUSED_FOR: Duration = Duration::from_secs(90);
 
 pub struct Wire;
 
@@ -162,6 +176,14 @@ struct Sess {
     resync: bool,
     /// Being paged over HTTP before attaching.
     paging: bool,
+    /// The cursor the current paging round started from.
+    page_from: Option<u64>,
+    /// Paging rounds in a row that ended where they started.
+    stalls: u32,
+    /// Failed page requests in a row.
+    page_errors: u32,
+    /// After a reset to the tail: events up to this were delivered before.
+    skip_through: Option<u64>,
     unacked: u32,
     first_unacked: Option<Instant>,
     /// Telemetry: when an attach asked for after the connection was up
@@ -270,6 +292,8 @@ struct Actor {
     telemetry_at: Option<Instant>,
     telemetry_bucket: crate::telemetry::Bucket,
     lost_at: Option<Instant>,
+    /// The first of the `4001` closes in a row that `/me` contradicted.
+    refused_since: Option<Instant>,
 }
 
 impl Actor {
@@ -317,6 +341,7 @@ impl Actor {
             telemetry_at: None,
             telemetry_bucket: crate::telemetry::Bucket::new(now),
             lost_at: None,
+            refused_since: None,
         }
     }
 
@@ -546,11 +571,14 @@ impl Actor {
                     let _ = c.tx.send(Message::Close(None));
                     // Dead without a close frame.
                     crate::telemetry::connection_ended(&c.counts, c.up_since.elapsed(), 1006, c.reconnect);
+                    if c.up_since.elapsed() >= STABLE {
+                        self.attempt = 0;
+                    }
                 }
                 self.lost_at = Some(now);
                 crate::telemetry::error(crate::telemetry::ErrorClass::Timeout, None);
                 self.down_since.get_or_insert(now);
-                self.dial_now();
+                self.redial(false);
             }
         if self.conn.as_ref().and_then(|c| c.expires_at).is_some_and(|t| now >= t) {
             if let Some(c) = self.conn.as_mut() {
@@ -701,6 +729,14 @@ impl Actor {
                     self.close();
                 }
                 Ok(url) => {
+                    // `/me` takes the key the wire closed with 4001: a change
+                    // the edge has not seen yet, or one it never will. Retried
+                    // on the backoff, but not forever.
+                    if close.is_some() && self.refused_since.get_or_insert_with(Instant::now).elapsed() >= REFUSED_FOR {
+                        self.emit(WireEvent::Fatal(Error::new("unauthenticated", "the wire keeps refusing this API key").hint("run `opc login`").with("closeCode", 4001u64)));
+                        self.close();
+                        return;
+                    }
                     if let Some(u) = url {
                         if let Some(http) = &self.http {
                             crate::cache::set_wire_url(http.api_url(), &u);
@@ -750,7 +786,7 @@ impl Actor {
         if self.closed {
             return;
         }
-        let delay = backoff(self.attempt);
+        let delay = hinted(backoff(self.attempt), error.as_ref().and_then(Error::retry_after_ms));
         self.attempt = self.attempt.saturating_add(1);
         self.retry_at = Some(Instant::now() + delay);
         // A failed replacement while the old connection serves is silent.
@@ -878,7 +914,8 @@ impl Actor {
         c.expires_at = params
             .get("expiresInMs")
             .and_then(Value::as_u64)
-            .map(|ms| Instant::now() + Duration::from_millis(ms).mul_f64(0.9).saturating_sub(Duration::from_secs(5)));
+            .and_then(|ms| replace_in(Duration::from_millis(ms)))
+            .map(|d| Instant::now() + d);
         let resumed_tls = c.resumed_tls;
         let generation = c.generation;
         let url_attached = c.url_attached.clone();
@@ -1043,6 +1080,7 @@ impl Actor {
                 self.start_paging(&id);
                 return;
             }
+        s.stalls = 0;
         self.emit(WireEvent::Attached { session_id: id.to_string(), result: Ok(Box::new(info)) });
     }
 
@@ -1054,6 +1092,7 @@ impl Actor {
             return;
         }
         match s.cursor {
+            None if s.skip_through.is_some_and(|f| seq <= f) => return,
             Some(c) if seq <= c => return,
             Some(c) if seq > c + 1 => {
                 if !s.resync {
@@ -1084,6 +1123,7 @@ impl Actor {
         log::info(&format!("wire: connection closed ({code}{})", if reason.is_empty() { String::new() } else { format!(" {reason}") }));
         if c.up_since.elapsed() >= STABLE {
             self.attempt = 0;
+            self.refused_since = None;
         }
         if c.ready && !self.closed {
             self.lost_at = Some(Instant::now());
@@ -1134,30 +1174,37 @@ impl Actor {
                 for id in ids {
                     self.start_paging(&id);
                 }
-                self.dial_now();
+                self.redial(true);
             }
             4503 => {
-                let ms = serde_json::from_str::<Value>(&reason).ok().and_then(|v| v.get("retryAfterMs").and_then(Value::as_u64)).unwrap_or(1000);
-                self.retry_after(Duration::from_millis(ms), Error::new("computer_unavailable", "starting your computer"));
+                let ms = close_hint(&reason).unwrap_or(1000);
+                self.retry_after(Duration::from_millis(ms).min(HINT_MAX), Error::new("computer_unavailable", "starting your computer"));
             }
             4029 => {
                 let e = Error::new("too_many_attached", "too many connections for this key");
-                let delay = backoff(self.attempt.max(3));
+                let delay = hinted(backoff(self.attempt.max(3)), close_hint(&reason));
                 self.retry_after(delay, e);
             }
             1009 => {
                 self.drop_pending = true;
-                self.dial_now();
+                self.redial(false);
             }
-            1001 | 1012 => self.dial_now(),
+            1001 | 1012 => self.redial(true),
             _ => self.schedule_retry(Some(err(&code.to_string(), format!("the connection to your computer dropped ({code})")))),
         }
     }
 
-    fn dial_now(&mut self) {
-        self.retry_at = Some(Instant::now());
+    /// Dials again after a close that is no failure of ours (going away,
+    /// restarting, a dead socket): at once the first time, within 250 ms
+    /// when `spread` (a restarting server's clients must not all come back
+    /// in the same instant), then on the backoff, so a server that keeps
+    /// closing is not hammered.
+    fn redial(&mut self, spread: bool) {
+        let delay = redial_delay(self.attempt, spread, unit_random());
+        self.attempt = self.attempt.saturating_add(1);
+        self.retry_at = Some(Instant::now() + delay);
         if self.ever_connected {
-            self.emit(WireEvent::Reconnecting { attempt: self.attempt, retry_in: Duration::ZERO, error: Error::unreachable("reconnecting") });
+            self.emit(WireEvent::Reconnecting { attempt: self.attempt, retry_in: delay, error: Error::unreachable("reconnecting") });
         }
     }
 
@@ -1178,27 +1225,37 @@ impl Actor {
             self.emit(WireEvent::Attached { session_id: id, result: Err(e) });
             return;
         };
+        if s.stalls >= PAGE_STALLS {
+            log::info(&format!("wire: {id} cannot catch up from {}; starting again from its tail", s.cursor.unwrap_or(0)));
+            self.reset_to_tail(id);
+            return;
+        }
         s.paging = true;
         s.attaching = false;
+        s.page_from = s.cursor;
+        s.page_errors = 0;
+        // A round right after one that went nowhere waits on the backoff.
+        let delay = backoff(s.stalls);
         let after = s.cursor.unwrap_or(0);
-        self.page(http, id.to_string(), after);
-    }
-
-    fn page(&self, http: Http, id: String, after: u64) {
-        fetch_page(http, self.internal_tx.clone(), id, after, Duration::ZERO);
+        fetch_page(http, self.internal_tx.clone(), id.to_string(), after, delay);
     }
 
     fn on_paged(&mut self, id: String, result: Result<(Vec<Value>, u64, bool)>) {
-        let Some(s) = self.sessions.get_mut(&id) else { return };
+        let Some(s) = self.sessions.get_mut(&id).filter(|s| s.paging) else { return };
         match result {
             Ok((events, last, more)) => {
+                s.page_errors = 0;
                 let mut delivered = Vec::new();
+                let mut gap = false;
                 for v in events {
                     let ev = Event(v);
                     let seq = ev.seq();
                     match s.cursor {
                         Some(c) if seq <= c => continue,
-                        Some(c) if seq > c + 1 => break,
+                        Some(c) if seq > c + 1 => {
+                            gap = true;
+                            break;
+                        }
                         _ => {}
                     }
                     s.cursor = Some(seq);
@@ -1207,20 +1264,24 @@ impl Actor {
                 let cursor = s.cursor.unwrap_or(0);
                 let close_enough = last.saturating_sub(cursor) <= MAX_REPLAY;
                 let done = close_enough || !more || delivered.is_empty();
+                // The events right after the cursor are gone: no page or
+                // attach will bring them back.
+                let lost = gap && delivered.is_empty();
                 for ev in delivered {
                     self.emit(WireEvent::Event(ev));
                 }
-                if done {
-                    if let Some(s) = self.sessions.get_mut(&id) {
-                        s.paging = false;
-                    }
-                    if self.is_ready() {
-                        self.send_attach(&id);
-                    }
-                } else if let Some(http) = self.http.clone() {
-                    self.page(http, id, cursor);
+                if lost {
+                    log::info(&format!("wire: the events of {id} after {cursor} are gone; starting again from its tail"));
+                    self.reset_to_tail(&id);
+                } else if done {
+                    self.end_paging(&id);
+                } else {
+                    fetch_page(self.http.clone().expect("paging needs http"), self.internal_tx.clone(), id, cursor, Duration::ZERO);
                 }
             }
+            // HTTP has not seen the events we have (its copy lags the
+            // computer's): the wire is the way on.
+            Err(e) if e.code == "cursor_ahead" => self.end_paging(&id),
             Err(e) => {
                 if matches!(e.code.as_str(), "session_not_found" | "forbidden" | "unauthenticated") {
                     self.sessions.remove(&id);
@@ -1228,11 +1289,42 @@ impl Actor {
                     self.emit(WireEvent::Attached { session_id: id, result: Err(e) });
                     return;
                 }
-                // Try again shortly; the wire is still the way back.
-                let http = self.http.clone().expect("paging needs http");
+                // Try again on the backoff; the wire is still the way back.
+                s.page_errors = s.page_errors.saturating_add(1);
+                let delay = hinted(backoff(s.page_errors), e.retry_after_ms());
                 let after = s.cursor.unwrap_or(0);
-                fetch_page(http, self.internal_tx.clone(), id, after, Duration::from_secs(1));
+                fetch_page(self.http.clone().expect("paging needs http"), self.internal_tx.clone(), id, after, delay);
             }
+        }
+    }
+
+    /// A paging round is over: attach from where it got to. A round that
+    /// did not move the cursor counts towards [`PAGE_STALLS`].
+    fn end_paging(&mut self, id: &str) {
+        let Some(s) = self.sessions.get_mut(id) else { return };
+        s.paging = false;
+        s.stalls = if s.cursor == s.page_from { s.stalls + 1 } else { 0 };
+        if self.is_ready() {
+            self.send_attach(id);
+        }
+    }
+
+    /// The server cannot bring this session up to date from its cursor:
+    /// attach its tail instead, and tell the consumer to rebuild from there
+    /// (an [`WireEvent::EpochReset`] after the cursor). Events it already
+    /// has are not delivered again.
+    fn reset_to_tail(&mut self, id: &str) {
+        let Some(s) = self.sessions.get_mut(id) else { return };
+        let cursor = s.cursor.unwrap_or(0);
+        s.skip_through = Some(cursor.max(s.skip_through.unwrap_or(0)));
+        s.cursor = None;
+        s.want.after = None;
+        s.want.tail_turns = Some(1);
+        s.paging = false;
+        s.stalls = 0;
+        self.emit(WireEvent::EpochReset { session_id: id.to_string(), epoch_start_seq: cursor + 1 });
+        if self.is_ready() {
+            self.send_attach(id);
         }
     }
 }
@@ -1267,6 +1359,10 @@ fn new_sess(want: Attach) -> Sess {
         attaching: false,
         resync: false,
         paging: false,
+        page_from: None,
+        stalls: 0,
+        page_errors: 0,
+        skip_through: None,
         unacked: 0,
         first_unacked: None,
         attach_from: None,
@@ -1285,12 +1381,46 @@ pub fn wire_url_from_me(me: &Value) -> Option<String> {
 
 /// Immediate, then 250 ms doubling to 8 s, with ±20 % jitter.
 pub fn backoff(attempt: u32) -> Duration {
+    backoff_with(attempt, unit_random())
+}
+
+/// [`backoff`] with its random draw `r` in `[0, 1]`.
+fn backoff_with(attempt: u32, r: f64) -> Duration {
     if attempt == 0 {
         return Duration::ZERO;
     }
     let base = BACKOFF_START.saturating_mul(1u32 << (attempt - 1).min(6)).min(BACKOFF_MAX);
-    let r = u16::from_le_bytes(crate::ids::random_bytes::<2>()) as f64 / u16::MAX as f64;
     base.mul_f64(0.8 + 0.4 * r)
+}
+
+fn unit_random() -> f64 {
+    u16::from_le_bytes(crate::ids::random_bytes::<2>()) as f64 / u16::MAX as f64
+}
+
+/// The wait before [`Actor::redial`]'s dial: none the first time, or up to
+/// 250 ms when `spread`; then the backoff. `r` is the random draw.
+fn redial_delay(attempt: u32, spread: bool, r: f64) -> Duration {
+    match attempt {
+        0 if spread => BACKOFF_START.mul_f64(r),
+        n => backoff_with(n, r),
+    }
+}
+
+/// `delay`, or the server's wait when that is longer (up to [`HINT_MAX`]).
+fn hinted(delay: Duration, hint_ms: Option<u64>) -> Duration {
+    hint_ms.map_or(delay, |ms| delay.max(Duration::from_millis(ms).min(HINT_MAX)))
+}
+
+/// `retryAfterMs` from a close reason that is JSON (`4503`).
+fn close_hint(reason: &str) -> Option<u64> {
+    serde_json::from_str::<Value>(reason).ok().and_then(|v| v.get("retryAfterMs").and_then(Value::as_u64))
+}
+
+/// When to dial a connection's replacement, given `ready.expiresInMs`: a
+/// little before it ends, or never when it ends too soon for the
+/// replacement, made with the same credential, to outlive it by much.
+fn replace_in(expires_in: Duration) -> Option<Duration> {
+    (expires_in >= EXPIRY_MIN).then(|| expires_in.mul_f64(0.9).saturating_sub(Duration::from_secs(5)))
 }
 
 #[cfg(test)]
@@ -1316,6 +1446,229 @@ mod tests {
             let b = backoff(n);
             assert!(b >= Duration::from_millis(6400) && b <= Duration::from_millis(9600), "{b:?}");
         }
+    }
+
+    /// An actor driven by hand: no dial runs, the handlers are called as the
+    /// loop would, and times are read off `retry_at` against `Instant::now`.
+    fn actor(http: bool) -> (Actor, mpsc::UnboundedReceiver<WireEvent>) {
+        let (out, events) = mpsc::unbounded_channel();
+        let opts = WireOptions { url: "ws://127.0.0.1:9/v1".into(), key: "k".into(), deltas: false, resume: false, read_only: false, give_up: None };
+        let http = http.then(|| {
+            let config = crate::config::Config {
+                path: std::path::PathBuf::from("/nonexistent/opc-test-config"),
+                file: Default::default(),
+                api_url: "http://127.0.0.1:9".into(),
+                api_key: None,
+                key_source: None,
+                file_error: None,
+            };
+            Http::new(&config).unwrap()
+        });
+        let attach = Attach { session_id: "cs_a".into(), after: Some(100), ..Default::default() };
+        let mut a = Actor::new(opts, vec![attach], http, out);
+        a.retry_at = None;
+        a.ever_connected = true;
+        (a, events)
+    }
+
+    fn conn(up_for: Duration) -> Conn {
+        let (tx, _) = mpsc::unbounded_channel();
+        let at = Instant::now() - up_for;
+        Conn {
+            generation: 1,
+            tx,
+            dial_started: at,
+            resumed_tls: false,
+            expires_at: None,
+            ready: false,
+            up_since: at,
+            last_rx: at,
+            url_attached: vec![],
+            opened_at: at,
+            took: Duration::ZERO,
+            counts: crate::telemetry::ConnCounts::new(),
+            reconnect: true,
+        }
+    }
+
+    fn retry_in(a: &Actor) -> Duration {
+        a.retry_at.expect("a retry is scheduled").saturating_duration_since(Instant::now())
+    }
+
+    fn drain(rx: &mut mpsc::UnboundedReceiver<WireEvent>) -> Vec<WireEvent> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    const SLACK: Duration = Duration::from_millis(50);
+
+    #[test]
+    fn redials_spread_then_back_off() {
+        assert_eq!(redial_delay(0, false, 1.0), Duration::ZERO);
+        assert_eq!(redial_delay(0, true, 0.0), Duration::ZERO);
+        assert_eq!(redial_delay(0, true, 1.0), Duration::from_millis(250));
+        assert_eq!(redial_delay(1, true, 0.5), Duration::from_millis(250));
+        assert_eq!(redial_delay(3, false, 0.5), Duration::from_secs(1));
+        assert_eq!(redial_delay(30, true, 1.0), Duration::from_millis(9600));
+    }
+
+    #[test]
+    fn repeated_quick_closes_back_off() {
+        for code in [1001, 1012, 4008, 1009] {
+            let (mut a, _rx) = actor(false);
+            let mut waits = Vec::new();
+            for _ in 0..8 {
+                a.on_closed(conn(Duration::from_secs(1)), code, String::new());
+                waits.push(retry_in(&a));
+            }
+            assert!(waits[0] <= Duration::from_millis(250), "{code}: {waits:?}");
+            assert!(waits[1] >= Duration::from_millis(200) - SLACK, "{code}: {waits:?}");
+            assert!(waits[7] >= Duration::from_millis(6400) - SLACK, "{code}: {waits:?}");
+        }
+        // A connection that held a minute starts again from the quick redial.
+        let (mut a, _rx) = actor(false);
+        for _ in 0..5 {
+            a.on_closed(conn(Duration::from_secs(1)), 1012, String::new());
+        }
+        a.on_closed(conn(STABLE), 1012, String::new());
+        assert!(retry_in(&a) <= Duration::from_millis(250));
+    }
+
+    #[test]
+    fn retry_hints_are_honoured_and_capped() {
+        let (mut a, _rx) = actor(false);
+        let mut e = Error::new("rate_limited", "slow down");
+        e.extra.insert("retryAfterMs".into(), json!(5000));
+        a.on_dial_error(e, vec![]);
+        assert!(retry_in(&a) >= Duration::from_millis(5000) - SLACK && retry_in(&a) <= Duration::from_millis(5000));
+        let mut e = Error::new("rate_limited", "slow down");
+        e.extra.insert("retryAfterMs".into(), json!(3_600_000));
+        a.on_dial_error(e, vec![]);
+        assert!(retry_in(&a) <= HINT_MAX && retry_in(&a) >= HINT_MAX - SLACK);
+        // Shorter than the backoff: the backoff.
+        a.attempt = 6;
+        let mut e = Error::new("rate_limited", "slow down");
+        e.extra.insert("retryAfterMs".into(), json!(10));
+        a.on_dial_error(e, vec![]);
+        assert!(retry_in(&a) >= Duration::from_millis(6400) - SLACK);
+
+        let (mut a, _rx) = actor(false);
+        a.on_closed(conn(Duration::from_secs(1)), 4029, r#"{"retryAfterMs": 20000}"#.into());
+        assert!(retry_in(&a) >= Duration::from_secs(20) - SLACK);
+        a.on_closed(conn(Duration::from_secs(1)), 4029, "more than 50 connections".into());
+        assert!(retry_in(&a) >= Duration::from_millis(800) - SLACK);
+        a.on_closed(conn(Duration::from_secs(1)), 4503, r#"{"retryAfterMs": 999999}"#.into());
+        assert!(retry_in(&a) <= HINT_MAX);
+    }
+
+    #[test]
+    fn short_lived_credentials_are_not_replaced() {
+        assert_eq!(replace_in(Duration::from_millis(5000)), None);
+        assert_eq!(replace_in(Duration::ZERO), None);
+        assert_eq!(replace_in(Duration::from_secs(59)), None);
+        assert_eq!(replace_in(Duration::from_secs(60)), Some(Duration::from_secs(49)));
+        assert_eq!(replace_in(Duration::from_secs(3600)), Some(Duration::from_secs(3235)));
+        let (mut a, _rx) = actor(false);
+        a.conn = Some(conn(Duration::ZERO));
+        a.on_ready(json!({"connectionId": "c", "expiresInMs": 5000}));
+        assert!(a.conn.as_ref().unwrap().expires_at.is_none());
+        a.conn = Some(conn(Duration::ZERO));
+        a.on_ready(json!({"connectionId": "c", "expiresInMs": 600_000}));
+        assert!(a.conn.as_ref().unwrap().expires_at.is_some_and(|t| t > Instant::now() + Duration::from_secs(530)));
+    }
+
+    #[test]
+    fn a_refused_key_that_me_accepts_is_fatal_in_the_end() {
+        let (mut a, mut rx) = actor(false);
+        a.on_internal(Internal::MeChecked(Ok(None), Some((4001, String::new()))));
+        assert!(!a.closed && a.retry_at.is_some());
+        assert!(!drain(&mut rx).iter().any(|e| matches!(e, WireEvent::Fatal(_))));
+        a.on_internal(Internal::MeChecked(Ok(None), Some((4001, String::new()))));
+        assert!(!a.closed);
+        a.refused_since = Some(Instant::now() - REFUSED_FOR);
+        a.on_internal(Internal::MeChecked(Ok(None), Some((4001, String::new()))));
+        assert!(a.closed);
+        let fatal = drain(&mut rx).into_iter().find_map(|e| match e {
+            WireEvent::Fatal(e) => Some(e),
+            _ => None,
+        });
+        assert_eq!(fatal.map(|e| e.exit_code()), Some(3));
+        // A connection that held clears it.
+        let (mut a, _rx) = actor(false);
+        a.refused_since = Some(Instant::now() - REFUSED_FOR);
+        a.on_closed(conn(STABLE), 1000, String::new());
+        assert!(a.refused_since.is_none());
+    }
+
+    fn page(a: &mut Actor, events: &[u64], last: u64, more: bool) {
+        let events = events.iter().map(|seq| json!({"sessionId": "cs_a", "seq": seq, "type": "x"})).collect();
+        a.on_paged("cs_a".into(), Ok((events, last, more)));
+    }
+
+    #[tokio::test]
+    async fn paging_that_goes_nowhere_ends_at_the_tail() {
+        // HTTP's copy lags the wire: every page is empty, every attach is
+        // refused again.
+        let (mut a, mut rx) = actor(true);
+        for round in 0..PAGE_STALLS {
+            a.on_attach_result("cs_a", Err(Error::new("too_far_behind", "far")));
+            let s = &a.sessions["cs_a"];
+            assert!(s.paging, "round {round}");
+            assert_eq!(s.stalls, round);
+            page(&mut a, &[], 100, false);
+            assert!(!a.sessions["cs_a"].paging);
+        }
+        assert!(drain(&mut rx).is_empty());
+        a.on_attach_result("cs_a", Err(Error::new("too_far_behind", "far")));
+        let s = &a.sessions["cs_a"];
+        assert!(!s.paging && s.cursor.is_none() && s.want.tail_turns == Some(1) && s.want.after.is_none());
+        let ev = drain(&mut rx);
+        assert!(matches!(ev.as_slice(), [WireEvent::EpochReset { epoch_start_seq: 101, .. }]), "{ev:?}");
+        // Events already delivered are not delivered again; the tail's are.
+        a.on_event(Event(json!({"sessionId": "cs_a", "seq": 99})));
+        a.on_event(Event(json!({"sessionId": "cs_a", "seq": 100})));
+        a.on_event(Event(json!({"sessionId": "cs_a", "seq": 140})));
+        a.on_event(Event(json!({"sessionId": "cs_a", "seq": 141})));
+        let seqs: Vec<u64> = drain(&mut rx).into_iter().filter_map(|e| if let WireEvent::Event(e) = e { Some(e.seq()) } else { None }).collect();
+        assert_eq!(seqs, vec![140, 141]);
+    }
+
+    #[tokio::test]
+    async fn paging_that_moves_is_not_a_stall() {
+        let (mut a, _rx) = actor(true);
+        for round in 0..PAGE_STALLS * 2 {
+            a.on_attach_result("cs_a", Err(Error::new("too_far_behind", "far")));
+            let from = a.sessions["cs_a"].cursor.unwrap();
+            page(&mut a, &[from + 1, from + 2], from + 20_000, false);
+            assert_eq!(a.sessions["cs_a"].stalls, 0, "round {round}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_past_the_cursor_goes_to_the_tail_at_once() {
+        let (mut a, mut rx) = actor(true);
+        a.on_attach_result("cs_a", Err(Error::new("too_far_behind", "far")));
+        page(&mut a, &[150, 151], 20_000, true);
+        let s = &a.sessions["cs_a"];
+        assert!(!s.paging && s.want.tail_turns == Some(1));
+        assert!(matches!(drain(&mut rx).as_slice(), [WireEvent::EpochReset { epoch_start_seq: 101, .. }]));
+        // A late page for a round that is over is ignored.
+        page(&mut a, &[101], 20_000, true);
+        assert!(drain(&mut rx).is_empty());
+    }
+
+    #[tokio::test]
+    async fn page_errors_back_off_and_cursor_ahead_attaches() {
+        let (mut a, _rx) = actor(true);
+        a.on_attach_result("cs_a", Err(Error::new("too_far_behind", "far")));
+        for n in 1..=3 {
+            a.on_paged("cs_a".into(), Err(Error::new("internal", "boom")));
+            assert_eq!(a.sessions["cs_a"].page_errors, n);
+            assert!(a.sessions["cs_a"].paging);
+        }
+        a.on_paged("cs_a".into(), Err(Error::new("cursor_ahead", "ahead")));
+        let s = &a.sessions["cs_a"];
+        assert!(!s.paging);
+        assert_eq!(s.stalls, 1);
     }
 
     #[test]
