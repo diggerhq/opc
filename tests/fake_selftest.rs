@@ -163,7 +163,7 @@ fn ask_round_trips() {
     assert!(fake.wait_turn(&sid, &tid, T));
     assert_eq!(completed_text(&fake, &sid, &tid), "approval: allow");
 
-    // A5: allowing a plan with a mode switches the session to it.
+    // Allowing a plan with a mode switches the session to it.
     fake.call(Call { op: "sessions.update".into(), sid: Some(sid.clone()), body: json!({"mode": "plan"}), ..Default::default() }).unwrap();
     let (tid, _) = fake.send(&sid, "plan", "queue").unwrap();
     let ask = fake.wait_ask(&sid, T).unwrap();
@@ -172,7 +172,7 @@ fn ask_round_trips() {
     assert!(fake.wait_turn(&sid, &tid, T));
     assert_eq!(fake.session(&sid)["settings"]["mode"], "acceptEdits");
 
-    // A6: a steer while an ask is open declines it.
+    // A steer while an ask is open declines it.
     let (tid, _) = fake.send(&sid, "approve", "queue").unwrap();
     let ask = fake.wait_ask(&sid, T).unwrap();
     let aid = ask["id"].as_str().unwrap().to_string();

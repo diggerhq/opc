@@ -39,9 +39,9 @@ The prompt line is live at once. If the session cannot be created, because the n
 ```
 $ opc ls
    ID    TITLE                              STATUS            WHERE      ACTIVE
- ◆ 7f3a  flaky test in segment.test.ts      waiting for you   #_build    2m
- ● 9c1e  codex contract review              running           opc        14m
-   b20d  warm pool round 3                  idle              #_build    3h
+ ◆ 7f3a  flaky test in segment.test.ts      waiting for you   #build     2m
+ ● 9c1e  billing api contract review        running           opc        14m
+   b20d  upgrade the eslint config          idle              #build     3h
    e4k8  old spike                          suspended         opc        2d
 ```
 
@@ -66,7 +66,7 @@ Every command that acts on a session takes `-s` or `--session <id>`. Commands wh
 
 - **An id or a title.** A word that is the prefix of the id of a session you can see is that id. Any other word searches titles.
 - **The last session.** `-` means the session most recently created or attached on this machine, including by `opc -p`. It is kept in `~/.opencomputer/opc/state.json`, so it does not follow you across machines.
-- **Leaving it out.** `push`, `pull`, `shell` and `secret` use the last session when you name none, but only when standard input is a terminal. From a script they fail with `pass -s <id>`. `send`, `wait`, `watch`, `interrupt`, `log` and `diff` always need a session.
+- **Leaving it out.** `push`, `pull` and `shell` use the last session when you name none, but only when standard input is a terminal. From a script they fail with `pass -s <id>`. `send`, `wait`, `watch`, `interrupt`, `log` and `diff` always need a session.
 
 Prefixes and titles are for people. Scripts should pass full ids, such as `cs_7f3a9k2m4q8r1t6v`.
 

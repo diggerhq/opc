@@ -769,7 +769,7 @@ fn answer(sh: &Arc<Shared>, c: &Call) -> ApiResult<(u16, Value)> {
                     return Err(ApiErr::field(400, "invalid_answer", "decision", "this approval has no always option"));
                 }
                 if let Some(m) = body.get("mode").filter(|m| !m.is_null()) {
-                    // 084 A5: a plan approval may switch the permission mode.
+                    // A plan approval may switch the permission mode.
                     let m = m.as_str().ok_or_else(|| ApiErr::field(400, "invalid_answer", "mode", "mode is a string"))?;
                     if a["approval"]["toolName"] != "ExitPlanMode" {
                         return Err(ApiErr::field(400, "invalid_answer", "mode", "mode applies to plan approvals only"));

@@ -18,7 +18,6 @@ Where there is no person to confirm a login, give `opc` an API key. For the comm
     | `sessions:read` | Listing and reading sessions, turns, asks and events; `opc ls`, `log`, `wait`, `watch` |
     | `sessions:write` | Creating sessions, sending, interrupting, renaming, archiving, pushing files |
     | `asks:answer` | Answering and dismissing asks; `opc ask` |
-    | `secrets:write` | Setting and deleting secrets; `opc secret` |
     | `terminals` | Opening terminals; `opc shell`, `opc diff` |
 
     A CI job that runs `opc -p` needs `sessions:read` and `sessions:write`. A command that needs a scope the key lacks fails with `forbidden`, `reason: "missing_scope"` and the `scope`, exit code `3`. A key with `expiresAt` stops working at that time, as if revoked.
@@ -32,7 +31,7 @@ Where there is no person to confirm a login, give `opc` an API key. For the comm
       env:
         OPENCOMPUTER_API_KEY: ${{ secrets.OPENCOMPUTER_API_KEY }}
       run: |
-        curl -fsSL https://opencomputer.dev/opc/install.sh | sh
+        curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
         ~/.local/bin/opc -p --mode auto --on-ask dismiss --timeout 20m \
           --idempotency-key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-fix-tests" \
           --metadata repo="$GITHUB_REPOSITORY" --metadata run="$GITHUB_RUN_ID" \
@@ -67,7 +66,3 @@ Nobody is there to answer an [ask](/terminal/asks), so by default `opc -p` exits
 - `opc` never prints a key, including in `--timing` and debug logs.
 - Give each job its own key, with only the scopes it needs and an expiry.
 - Revoke a key on the dashboard the moment it may have leaked. New requests fail at once, new connections within a minute, and a connection already open is closed with code `4001`.
-
-## Not yet
-
-- **OIDC for CI.** Exchanging a GitHub Actions OIDC token for a short-lived credential, so a job needs no stored key, is planned.

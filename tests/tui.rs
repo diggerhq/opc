@@ -26,6 +26,11 @@ impl Pty {
 
     /// As `spawn`, without the fake's variables named in `unset`.
     fn spawn_with(fake: &Fake, args: &[&str], unset: &[&str]) -> Pty {
+        Pty::spawn_env(fake, args, unset, &[])
+    }
+
+    /// As `spawn_with`, with the variables in `set` in place of the fake's.
+    fn spawn_env(fake: &Fake, args: &[&str], unset: &[&str], set: &[(&str, &str)]) -> Pty {
         let (mut m, mut s) = (0, 0);
         let mut ws = libc::winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
         // SAFETY: openpty fills in two descriptors we then own.
@@ -39,6 +44,9 @@ impl Pty {
             if !unset.contains(&k.as_str()) {
                 c.env(k, v);
             }
+        }
+        for (k, v) in set {
+            c.env(k, v);
         }
         c.stdin(Stdio::from(slave.try_clone().unwrap())).stdout(Stdio::from(slave.try_clone().unwrap())).stderr(Stdio::from(slave));
         // SAFETY: only async-signal-safe calls between fork and exec.
@@ -167,6 +175,26 @@ fn only_session(fake: &Fake) -> String {
         assert!(Instant::now() < end, "no session was created");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Launch to prompt needs no server: against an address that never answers,
+/// the prompt line still comes up at once. The budget in timing.mdx is 10 ms;
+/// this gate is loose enough for a debug build on a shared runner and still
+/// fails if launch ever waits on the network.
+#[test]
+fn prompt_does_not_wait_for_the_network() {
+    let fake = Fake::start();
+    let hole = [("OPENCOMPUTER_API_URL", "https://10.255.255.1"), ("OPC_WIRE_URL", "wss://10.255.255.1"), ("OPENCOMPUTER_API_KEY", "not-a-key")];
+    let mut ms: Vec<u128> = (0..10)
+        .map(|_| {
+            let t0 = Instant::now();
+            let p = Pty::spawn_env(&fake, &[], &[], &hole);
+            p.wait_for("type a message");
+            t0.elapsed().as_millis()
+        })
+        .collect();
+    ms.sort();
+    assert!(ms[ms.len() / 2] <= 250, "launch -> prompt, median of 10: {}ms ({ms:?})", ms[ms.len() / 2]);
 }
 
 #[test]

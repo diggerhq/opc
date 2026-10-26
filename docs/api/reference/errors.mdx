@@ -29,7 +29,7 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `400` | `unsupported_effort` | `field` | The model does not accept that effort |
 | `400` | `unsupported_mode` | `field` | The permission mode is not in `capabilities.modes` |
 | `400` | `invalid_answer` | `field` | An answer does not fit its ask |
-| `400` | `answer_with_secret` | | A secret request is answered by [setting the secret](/api/http/secrets) |
+| `400` | `answer_with_secret` | | A secret request is answered in Slack, not through the API |
 | `400` | `invalid_path` | | A workspace path is absolute, contains `..`, or is not a valid upload name |
 | `400` | `invalid_archive` | `entry` | An upload is not a tar archive, or has a refused entry |
 | `400` | `invalid_cursor` | | The cursor is unreadable, or was made with other filters |
@@ -39,7 +39,7 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `403` | `admin_required` | | Only admins can do this |
 | `404` | `not_found` | | No such route |
 | `404` | `session_not_found` | | No such session, or you cannot see it |
-| `404` | `turn_not_found`, `ask_not_found`, `subagent_not_found`, `path_not_found`, `secret_not_found` | | |
+| `404` | `turn_not_found`, `ask_not_found`, `subagent_not_found`, `path_not_found` | | |
 | `409` | `id_conflict` | | The session `id` chosen on create is taken by another session |
 | `409` | `idempotency_conflict` | | The key was used for a different request |
 | `409` | `ask_closed` | `ask` | The ask already closed. `ask` shows how and by whom. |
@@ -51,7 +51,7 @@ Over the WebSocket, the same object is the `data` of a JSON-RPC error, with `sta
 | `409` | `path_exists` | | An upload's name exists and was not uploaded |
 | `409` | `feature_unavailable` | `feature` | The session's `capabilities.features` lacks it |
 | `413` | `too_large` | `bytes`, `files` | Over a [limit](/api/reference/limits) |
-| `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. Reserved, not sent yet. See [Versioning](/api/reference/versioning#opc). |
+| `426` | `upgrade_required` | `minVersion` | This build of `opc` is no longer supported. See [Versioning](/api/reference/versioning#opc). |
 | `429` | `rate_limited` | `retryAfterMs` | Too many requests. HTTP also sends `Retry-After`. Over the 600 a minute per key, both say one minute. See [Limits](/api/reference/limits#rates). |
 | `500` | `internal` | | Our fault. Retry with the same idempotency key. |
 | `503` | `computer_unavailable` | `retryAfterMs` | Your computer is starting, being updated or down, and nothing was recorded. Retry with the same idempotency key. |

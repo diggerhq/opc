@@ -56,26 +56,14 @@ curl -s "$API/sessions/$id/turns/$turn" -H "x-api-key: $OPENCOMPUTER_API_KEY" | 
 
 ## Stream it instead
 
-Waiting is fine for scripts. To show the agent's work as it happens, open a WebSocket. With the client library:
+Waiting is fine for scripts. To show the agent's work as it happens, open a WebSocket. With `websocat`:
 
-```ts
-import { Computer } from "@opencomputer/computer";
-
-const computer = new Computer(); // reads OPENCOMPUTER_API_KEY
-
-const { session, turn } = await computer.sessions.create({
-  input: "Which of our services still use Node 18? Answer with a list.",
-});
-
-for await (const event of computer.sessions.stream(session.id, { deltas: true })) {
-  if (event.type === "message.delta") process.stdout.write(event.data.text);
-  if (event.type === "message.completed") process.stdout.write("\n");
-  if (event.type === "turn.completed" && event.turnId === turn.id) break;
-  if (event.type === "turn.failed" && event.turnId === turn.id) throw new Error(event.data.error.message);
-}
+```bash
+websocat -H "x-api-key: $OPENCOMPUTER_API_KEY" --protocol opc.v1 \
+  "wss://wire.opencomputer.dev/v1?attach=$id&deltas=1"
 ```
 
-`stream` connects with your key on the upgrade request, attaches to the session in the same request and yields its events, reconnecting when needed without losing or repeating any. In a browser, which cannot send the key, it connects with a [ticket](/api/http/tickets) instead. To do the same without the library, see [Connecting](/api/websocket/connect).
+The connection attaches to the session in the same request and sends its events as they happen, with text as it is written. In a browser, which cannot send the key, connect with a [ticket](/api/http/tickets) instead. See [Connecting](/api/websocket/connect).
 
 ## Next
 

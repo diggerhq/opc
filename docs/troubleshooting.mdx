@@ -8,7 +8,7 @@ Run `opc doctor` first. It checks each link in the chain, in order, and stops at
 ```
 $ opc doctor
 ✓ config        ~/.opencomputer/config.json                    1 ms
-✓ credential    igor-mbp · Igor Zalutski · acme                84 ms
+✓ credential    ada-mbp · Ada Lovelace · acme                  84 ms
 ✓ api           https://app.opencomputer.dev                   (same request)
 ✓ computer      ready                                          (same request)
 ✓ connection    wss://wire.opencomputer.dev · LHR → IAD        168 ms
@@ -40,13 +40,13 @@ $ opc doctor
     The connection dropped. `opc` reconnects at once when the network changes, when your machine wakes or when you press `Enter`, and otherwise with backoff, at most 8 seconds apart. Then it catches up on everything it missed. Messages you send meanwhile are marked `pending` and sent once; `Esc` takes them back into the prompt line. Nothing is lost on the computer: the session keeps working without you.
   </Accordion>
   <Accordion title="session not found">
-    The id or prefix matches no session you can see. Sessions started in Slack are hidden from everyone but their owner, for now, and archived sessions are not matched by title. Try `opc ls --archived`, or the Slack thread link. `opc ls` lists only your own sessions; a colleague's attaches by id or link.
+    The id or prefix matches no session you can see. Sessions started in Slack are hidden from everyone but their owner, and archived sessions are not matched by title. Try `opc ls --archived`, or the Slack thread link. `opc ls` lists only your own sessions; a colleague's attaches by id or link.
   </Accordion>
   <Accordion title="opc: looks like a message">
     The first word was the name of a command, and the rest did not fit it, so `opc` did nothing. Quote the message: `opc "push the fix to main"`, or put `--` first: `opc -- push the fix to main`. See [Start a session](/cli/sessions#start-a-session).
   </Accordion>
   <Accordion title="opc: pass -s <id>">
-    Standard input is not a terminal, so `opc` will not guess the session. `a`, `push`, `pull`, `shell` and `secret` use the last session only for a person at a terminal. Pass `-s` with the full session id.
+    Standard input is not a terminal, so `opc` will not guess the session. `a`, `push`, `pull` and `shell` use the last session only for a person at a terminal. Pass `-s` with the full session id.
   </Accordion>
   <Accordion title="opc push: already exists and was not pushed by opc">
     The name is taken by a repository or by something the agent created. Choose another with `--to`.

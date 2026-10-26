@@ -75,7 +75,6 @@
               "api/http/control",
               "api/http/events",
               "api/http/workspace",
-              "api/http/secrets",
               "api/http/tickets"
             ]
           },
@@ -91,8 +90,7 @@
               "api/reference/errors",
               "api/reference/idempotency",
               "api/reference/limits",
-              "api/reference/versioning",
-              "api/reference/clients"
+              "api/reference/versioning"
             ]
           }
         ]

@@ -48,7 +48,7 @@ See [Connecting](/api/websocket/connect) for the rest.
 
 ## Rules
 
-- **A ticket acts as you.** It can do over the WebSocket what your key can do, within the key's scopes and the ticket's `sessionIds` and `readOnly`. It cannot get more tickets, manage secrets or transfer files, which are HTTP only. A client on a ticket can call only the [WebSocket methods](/api/websocket/methods).
+- **A ticket acts as you.** It can do over the WebSocket what your key can do, within the key's scopes and the ticket's `sessionIds` and `readOnly`. It cannot get more tickets or transfer files, which are HTTP only. A client on a ticket can call only the [WebSocket methods](/api/websocket/methods).
 - **Reusable until it expires.** One ticket can open several connections, so a page that reconnects does not need a new one each time.
 - **Connections outlive tickets, by at most an hour.** A connection lasts until it closes or until one hour after it opened, when the server closes it with code `4001`. Get a new ticket before then and reconnect. See [Connecting](/api/websocket/connect#reconnecting).
 - **Revocation.** Revoking the key that got a ticket stops the ticket within a minute: new connections with it are refused, and connections already open close with `4001`.

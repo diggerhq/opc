@@ -605,7 +605,7 @@ impl Actor {
     }
 
     /// Sends queued telemetry as `telemetry` notifications, within the
-    /// relay's rate; what the rate holds back goes when a token is there.
+    /// server's rate limit; what the rate holds back goes when a token is there.
     fn flush_telemetry(&mut self, exit: bool) {
         if !self.is_ready() || !crate::telemetry::enabled() {
             return;

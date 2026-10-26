@@ -2005,7 +2005,7 @@ mod tests {
         m
     }
     fn me() -> Value {
-        json!({"id": "usr_me", "name": "Igor", "via": "opc"})
+        json!({"id": "usr_me", "name": "Ada", "via": "opc"})
     }
     fn tool(seq: u64, call: &str, name: &str, title: &str) -> Event {
         ev(seq, "tool.started", "tn_1", json!({"toolName": name, "callId": call, "parentCallId": null, "subagentId": null, "title": title, "input": {}}))

@@ -61,7 +61,7 @@ Sometimes the agent needs a person before it can go on. It raises an **ask**, an
 | --- | --- | --- |
 | `approval` | "Run `terraform apply` in `infra/`?" | Allow, deny, or allow for the rest of the session |
 | `question` | "Should I fix the test or the code?" with choices | A choice, several choices, or your own text |
-| `secret` | "I need `STRIPE_API_KEY`" | The value, typed where nobody else can see it, never into the conversation |
+| `secret` | "I need `STRIPE_API_KEY`" | The value, given in Slack, never into the conversation |
 
 Any member can answer an ask from any client. The first answer wins, and every other client shows who answered and where. See [Asks](/terminal/asks).
 

@@ -90,41 +90,14 @@ When there are several questions, the answers are sent together after the last o
 
 ## Secrets
 
-<Note>
-Secret requests are not available yet. This is how they will work.
-</Note>
-
-The agent needs a credential, such as an API key, that the session does not have.
+The agent may ask for a credential, such as an API key, that the session does not have. `opc` shows the request:
 
 ```
   ? Secret STRIPE_API_KEY needed
     "To run the billing integration tests against Stripe's test mode."
-    [enter] type it here (hidden)   [w] set it on the dashboard   [x] skip
 ```
 
-A secret never goes into the conversation. When you press `Enter`, `opc` reads the value without echoing it and sends it straight to your organization's secret store over HTTPS, not through the session. The session gets it as an environment variable from its next command, and the agent sees only its name.
-
-You choose who it is for:
-
-| Scope | Available to |
-| --- | --- |
-| `session` | This session only. The default. |
-| `me` | Every session you own, now and later |
-| `organization` | Every session in the organization. Admins only. |
-
-In a session someone else owns, `all my sessions` is not offered: the agent acts as the owner and uses the owner's secrets, not yours.
-
-```
-    value: ••••••••••••••••
-    for: ❯ this session   all my sessions   everyone (admin)
-  ✓ STRIPE_API_KEY set for this session
-```
-
-`w` opens the same form on the dashboard, for when you would rather not paste into a terminal. To set a secret before the agent asks, use [`opc secret set`](/reference/commands#opc-secret).
-
-<Warning>
-`opc` reads secrets only from a hidden prompt or from standard input. It never takes a secret value as a command-line argument, which other processes on your machine can see.
-</Warning>
+A secret request is answered in Slack, not from `opc` or the API. Press `x` to skip it: the agent is told nobody answered and decides how to go on.
 
 ## Answered somewhere else
 

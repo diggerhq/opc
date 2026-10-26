@@ -10,7 +10,7 @@ This repository also holds the documentation for `opc` and for the streaming ses
 
 Builds exist for macOS (Apple silicon, Intel) and Linux (x86-64, arm64, statically linked). On Windows, use the Linux build under WSL 2.
 
-While the repository is private, download a release with the [GitHub CLI](https://cli.github.com), check it and put `opc` on your `PATH`. Pick the archive for your platform:
+Download a release (here with the [GitHub CLI](https://cli.github.com)), check it and put `opc` on your `PATH`. Pick the archive for your platform:
 
 | Platform | Archive |
 | --- | --- |
@@ -29,12 +29,12 @@ opc --version
 # opc 0.1.0 (protocol opc.v1, schema computer-api.v1)
 ```
 
-The macOS builds of the prereleases are not signed yet.
+The macOS builds are not signed: if macOS blocks the first run, `xattr -d com.apple.quarantine ~/.local/bin/opc`.
 
-Once the repository is public, the install script does the same in one line: it picks the archive, checks it against `SHA256SUMS` and installs to `~/.local/bin` (`OPC_INSTALL_DIR` and `OPC_VERSION` change that). Its source is [`ci/install.sh`](ci/install.sh). See [Install](docs/install.mdx).
+The install script does the same in one line: it picks the archive, checks it against `SHA256SUMS` and installs to `~/.local/bin` (`OPC_INSTALL_DIR` and `OPC_VERSION` change that). Its source is [`ci/install.sh`](ci/install.sh). See [Install](docs/install.mdx).
 
 ```bash
-curl -fsSL https://opencomputer.dev/opc/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
 ```
 
 ## Quickstart
@@ -119,4 +119,4 @@ The tests run against an in-process fake server and need no account. [AGENTS.md]
 
 ## License
 
-Apache-2.0, as declared in `Cargo.toml`.
+Apache-2.0. See [LICENSE](LICENSE).

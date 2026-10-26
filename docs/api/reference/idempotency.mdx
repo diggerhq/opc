@@ -29,7 +29,7 @@ Over the WebSocket, pass `idempotencyKey` in the params. An HTTP route and its W
 | `POST /sessions/{id}/asks/{askId}/dismiss`, `asks.dismiss` | Dismisses once |
 | `PUT /sessions/{id}/workspace/archive` | Writes once |
 
-Other writes need no key. Updating settings, cancelling a queued turn, suspending, resuming and setting a secret give the same result when repeated.
+Other writes need no key. Updating settings, cancelling a queued turn, suspending and resuming give the same result when repeated.
 
 ## Rules
 
@@ -39,6 +39,6 @@ Other writes need no key. Updating settings, cancelling a queued turn, suspendin
 - **A key identifies the request, not just the call.** A repeat must have the same body: the same `input`, whitespace included, and the same `ifBusy`, where an omitted `ifBusy` equals `queue`. A different body with a used key gets `409 idempotency_conflict` and does nothing.
 - **A repeat gets the current state.** A repeated send returns the turn's status now, which may have moved on to `completed`.
 - **Concurrent repeats are safe.** If a repeat arrives while the first is still being handled, it waits for that result.
-- **Keys hold across restarts.** A session's keys are checked by the session's writer on the computer and recorded in its log, so a retry is recognized even after the computer restarts or the session resumes. Keys for `POST /sessions` are checked before the session exists. Keys for `PUT /sessions/{id}/workspace/archive` and `terminals.open` are the exception: they are kept only while your computer stays up, so a retry after it restarts writes again.
+- **Keys hold across restarts.** A session's keys are checked on the computer and recorded in its log, so a retry is recognized even after the computer restarts or the session resumes. Keys for `POST /sessions` are checked before the session exists. Keys for `PUT /sessions/{id}/workspace/archive` and `terminals.open` are the exception: they are kept only while your computer stays up, so a retry after it restarts writes again.
 
 `opc` sends a key with every write, and retries after a lost response for up to 60 seconds, or until its `--timeout`, before telling you.

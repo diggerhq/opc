@@ -607,7 +607,7 @@ impl World {
             }
             "steer" if !cancelling => {
                 let open: Vec<String> = self.s(sid).open_asks();
-                // 084 A6: a message sent while an ask is open declines it and is delivered as steering.
+                // A message sent while an ask is open declines it and is delivered as steering.
                 let mseq = self.emit(sid, Some(&atid), "message.received", Some(author), json!({"input": input, "ifBusy": if_busy, "delivery": "steered", "interruptedTurnIds": [], "declinedAskIds": open}));
                 for a in open {
                     self.close_ask(sid, &a, "declined", Some(author), json!({"message": input, "messageSeq": mseq}));

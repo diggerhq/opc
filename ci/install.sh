@@ -1,5 +1,5 @@
 #!/bin/sh
-# opc installer: curl -fsSL https://opencomputer.dev/opc/install.sh | sh
+# opc installer: curl -fsSL https://raw.githubusercontent.com/diggerhq/opc/main/ci/install.sh | sh
 #
 # Detects the platform, downloads the matching release from GitHub, checks
 # its SHA-256 against the release's SHA256SUMS and installs it to

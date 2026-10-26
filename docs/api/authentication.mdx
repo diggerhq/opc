@@ -32,7 +32,6 @@ A key has every scope unless it was created with fewer. Give a program a key wit
 | `sessions:read` | Reading sessions, turns, asks, events and workspace files, and watching sessions live |
 | `sessions:write` | Creating sessions, sending messages, interrupting, compacting, suspending and resuming, updating sessions and uploading files |
 | `asks:answer` | Answering and dismissing asks |
-| `secrets:write` | Setting and deleting secrets |
 | `terminals` | Opening [terminals](/api/websocket/terminals) |
 
 A request the key's scopes do not cover fails with `403 forbidden`, `"reason": "missing_scope"` and `scope` naming the one it needs. A scope never grants more than the member can do.
@@ -66,9 +65,9 @@ A server can get tickets with its key and hand them to its own browser clients, 
 
 ```json
 {
-  "person": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "email": "igor@acme.dev" },
+  "person": { "id": "usr_2k9d8f7a", "name": "Ada Lovelace", "email": "ada@acme.dev" },
   "organization": { "id": "org_5n1p9w3e", "name": "acme" },
-  "credential": { "id": "key_8q2x7c1v9b4m", "name": "igor-mbp", "kind": "key", "scopes": ["sessions:read", "sessions:write", "asks:answer", "secrets:write", "terminals"], "expiresAt": null, "createdAt": "2026-10-25T18:02:11.000Z" },
+  "credential": { "id": "key_8q2x7c1v9b4m", "name": "ada-mbp", "kind": "key", "scopes": ["sessions:read", "sessions:write", "asks:answer", "terminals"], "expiresAt": null, "createdAt": "2026-10-25T18:02:11.000Z" },
   "computer": { "status": "ready", "region": null, "wireUrl": "wss://wire.opencomputer.dev/v1" },
   "defaults": { "model": "claude-opus-5-5", "effort": "high", "mode": "bypassPermissions" },
   "capabilities": { "…": "as for a session" }
@@ -77,7 +76,7 @@ A server can get tickets with its key and hand them to its own browser clients, 
 
 | Field | Meaning |
 | --- | --- |
-| `credential.kind` | `key`. Keys `opc login` created are not told apart from dashboard keys yet. |
+| `credential.kind` | `key`. Keys `opc login` created are not told apart from dashboard keys. |
 | `credential.scopes` | What the key may do. See [Scopes](#scopes). |
 | `credential.expiresAt` | When the key stops working, or `null` |
 | `computer.status` | `ready`, `asleep` (it starts on first use, which takes seconds) or `not_set_up` |

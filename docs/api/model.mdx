@@ -18,11 +18,11 @@ Events are never changed or removed. An event with a `seq` at or below one you a
 
 ### One writer
 
-Each session's log has exactly one writer at a time, on the computer: the agent process while it runs, and the computer itself while the session has none, because it is suspended, starting or its process stopped. So a message sent to a suspended or starting session is recorded at once, as `message.received` and `turn.queued`, and the agent takes it when it is up. An event is recorded before any client sees it.
+Each session's log is written in one place, on the computer, also while the session is suspended or starting. So a message sent to a suspended or starting session is recorded at once, as `message.received` and `turn.queued`, and the agent takes it when it is up. An event is recorded before any client sees it.
 
 ### If a computer is lost
 
-The writer's term is numbered by the session's `logEpoch`. It changes only when the computer running a session is lost in the middle of a turn. Then the turn's open tool calls end as `tool.failed`, the turn as `turn.failed` with `runtime_lost`, and the session as `runtime.suspended`, all recorded in the new epoch, starting at the session's `epochStartSeq`.
+A session's log is numbered in epochs by its `logEpoch`. It changes only when the computer running a session is lost in the middle of a turn. Then the turn's open tool calls end as `tool.failed`, the turn as `turn.failed` with `runtime_lost`, and the session as `runtime.suspended`, all recorded in the new epoch, starting at the session's `epochStartSeq`.
 
 If `logEpoch` differs from the one you stored, discard what you applied at or after `epochStartSeq` and read again from `epochStartSeq - 1`. This only happens if a computer is lost mid-turn.
 
@@ -88,7 +88,7 @@ An **ask** blocks the turn that raised it until it closes. It closes once, as on
 
 | Status | Because |
 | --- | --- |
-| `answered` | Someone answered it. For a secret ask, someone set the secret. |
+| `answered` | Someone answered it. |
 | `dismissed` | Someone closed it without an answer. The agent is told and decides how to go on. |
 | `declined` | Someone sent a message with `steer` while it was open. The agent reads the message as its instructions instead of an answer. |
 | `interrupted` | Its turn was interrupted, or the session was [suspended](/api/http/control#suspend) |
@@ -133,8 +133,8 @@ Every event caused by a person carries an `actor`: who, and through which client
 
 ## Consistency
 
-- **One writer.** Each session's log is written in one place, the [writer](#one-writer), so every client sees the same events in the same order.
-- **Read your writes.** A successful response means the change is in the log. On the same transport, a later read includes it. Across transports, such as a send over the WebSocket followed by an HTTP read, pass the write's `seq` as `minSeq` on the read: it waits up to 2 seconds for the change, or fails with `503 unavailable` and `retryAfterMs`. `opc` and the client library do this for you.
+- **One writer.** Each session's log is written in one place, [on the computer](#one-writer), so every client sees the same events in the same order.
+- **Read your writes.** A successful response means the change is in the log. On the same transport, a later read includes it. Across transports, such as a send over the WebSocket followed by an HTTP read, pass the write's `seq` as `minSeq` on the read: it waits up to 2 seconds for the change, or fails with `503 unavailable` and `retryAfterMs`. `opc` does this for you.
 - **Live is not slower than the log.** Over the WebSocket, an event reaches attached clients when it is appended, not after a poll.
 - **Lists may lag.** A session in a list can be a few seconds behind its log.
 - **A read by id is current as of its `lastSeq`.** The session's `syncedAt` says when its copy last heard from the computer. When the computer is not reachable, it shows how old the snapshot is.

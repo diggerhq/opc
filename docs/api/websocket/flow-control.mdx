@@ -37,7 +37,7 @@ A client that stops reading entirely, so that more than 16 MiB waits on the whol
 1. For each session, if you were more than 10,000 events behind, page [`GET /sessions/{id}/events?after=`](/api/http/events) until you are within 10,000 of its `lastSeq`.
 2. Reconnect and attach with your last applied `seq` as `after`.
 
-The TypeScript client and `opc` do this.
+`opc` does this.
 
 ## Being a fast client
 
@@ -56,4 +56,4 @@ The TypeScript client and `opc` do this.
 | Message size | 1 MiB | The connection closes with `1009` |
 | Terminal input | 1 MiB a second per terminal | As requests |
 
-Compression (`permessage-deflate`) is not offered. Frames are small, and compressing them would add latency to every keystroke and every delta.
+Compression (`permessage-deflate`) is not offered.

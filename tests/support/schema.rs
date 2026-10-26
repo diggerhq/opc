@@ -7,9 +7,9 @@
 //! - `client:<name>` for a client notification (`client:sessions.ack`).
 //!
 //! `Event` and `Delta` are checked against the def for their `type` when there
-//! is one. A type the schema does not know yet (the 084 Slack-lesson additions
-//! `tool.preparing` and `session.compacting`) is checked against the envelope
-//! only, so they validate until calvin republishes the schema.
+//! is one. A type the schema does not know yet (`tool.preparing` and
+//! `session.compacting`) is checked against the envelope only, so they
+//! validate until the published schema includes them.
 
 use jsonschema::Validator;
 use serde_json::{Value, json};

@@ -10,7 +10,7 @@ It has two parts that share one data model:
 | | HTTP | WebSocket |
 | --- | --- | --- |
 | Base | `https://app.opencomputer.dev/api/managed-agents/computer` | `wss://wire.opencomputer.dev/v1` |
-| Use it for | Creating and listing sessions, single actions, reading history, files, secrets | Watching sessions live: text as it is written, a few milliseconds after the model produces it |
+| Use it for | Creating and listing sessions, single actions, reading history, files | Watching sessions live: text as it is written, a few milliseconds after the model produces it |
 | Shape | JSON requests and responses | JSON-RPC 2.0 messages |
 | Auth | An API key on every request | The API key on the upgrade request, or a short-lived [ticket](/api/http/tickets) from a browser |
 
@@ -86,10 +86,6 @@ Slack, `opc`, the dashboard and your programs are clients of the same sessions. 
 | `GET` | [`/sessions/{id}/workspace/file`](/api/http/workspace#read-a-file) | Reads one file |
 | `GET` | [`/sessions/{id}/workspace/archive`](/api/http/workspace#download) | Downloads a directory or file as tar |
 | `PUT` | [`/sessions/{id}/workspace/archive`](/api/http/workspace#upload) | Uploads a directory as tar |
-| `PUT` `DELETE` | [`/sessions/{id}/secrets/{name}`](/api/http/secrets#set-a-secret) | Sets or deletes a secret for one session |
-| `PUT` `DELETE` | [`/me/secrets/{name}`](/api/http/secrets#set-a-secret) | Sets or deletes a secret for every session you own |
-| `PUT` `DELETE` | [`/organization/secrets/{name}`](/api/http/secrets#set-a-secret) | Sets or deletes a secret for every session in the organization |
-| `GET` | [`/secrets`](/api/http/secrets#list-secrets) | Lists secret names you can see |
 | `POST` | [`/tickets`](/api/http/tickets) | Gets a ticket for a browser to open a WebSocket |
 
 The WebSocket's methods are on [Methods](/api/websocket/methods).
@@ -98,17 +94,17 @@ The WebSocket's methods are on [Methods](/api/websocket/methods).
 
 OpenComputer's [serverless agents](https://docs.opencomputer.dev) have a session API of the same family, and this one keeps to it wherever the two describe the same thing: the `x-api-key` header, `POST /sessions` and `GET /sessions` with `{ sessions, nextCursor }`, `POST /sessions/{id}/turns` with `queue | steer | interrupt` and `duplicate` on a repeated key, `{ events }` pages, the `message.*`, `turn.*`, `tool.*`, `usage.recorded` and `runtime.*` event names, the error shape and the turn failure codes. A client that reads one reads most of the other.
 
-Where this API differs, it is on purpose, because a session that people watch keystroke by keystroke needs more than one a program polls:
+Where this API differs:
 
-| Here | Serverless | Why |
-| --- | --- | --- |
-| [Asks](/api/http/asks): `approval`, `question` and `secret`, one object, answered once | `question.*` events, approvals as tool-level decisions | A client renders every kind of "the agent needs you" the same way, and the first answer from any client wins |
-| Sending returns `{ turn, delivery, duplicate, seq }`: the Turn itself, and what happened to the message, with a turn for steered messages too | `{ turnId, status, duplicate }`, and no turn for a steered message | The object every other route returns, so a client has the turn's author, input and times without a second request, and shows at once what happened to its message |
-| `message.delta`, `reasoning.delta` and `tool.delta` carry a `blockId` or `callId`, unique in the session | Deltas are concatenated per turn | Blocks interleave with tool calls; a client cannot attach text to the right place without it |
-| `GET /events` pages carry `lastSeq` and `hasMore`, and wait for new events with `waitMs` | `{ events }` only | A client knows whether it is caught up without another request, and follows a session without polling |
-| Every write returns `seq`, and reads accept `minSeq` | No equivalent | A client reads its own write on any transport |
-| Session status: `starting`, `running`, `waiting`, `idle`, `suspended` | Eleven statuses including `ended` | A session here never ends; what remains is what a client needs to draw |
-| `POST /interrupt` returns the session with the turn `cancelling` | The session goes `stopping` | The same asynchrony, expressed on the turn, which is what was interrupted |
+| Here | Serverless |
+| --- | --- |
+| [Asks](/api/http/asks): `approval`, `question` and `secret`, one object, answered once | `question.*` events, approvals as tool-level decisions |
+| Sending returns `{ turn, delivery, duplicate, seq }`: the Turn itself, and what happened to the message, with a turn for steered messages too | `{ turnId, status, duplicate }`, and no turn for a steered message |
+| `message.delta`, `reasoning.delta` and `tool.delta` carry a `blockId` or `callId`, unique in the session | Deltas are concatenated per turn |
+| `GET /events` pages carry `lastSeq` and `hasMore`, and wait for new events with `waitMs` | `{ events }` only |
+| Every write returns `seq`, and reads accept `minSeq` | No equivalent |
+| Session status: `starting`, `running`, `waiting`, `idle`, `suspended` | Eleven statuses including `ended` |
+| `POST /interrupt` returns the session with the turn `cancelling` | The session goes `stopping` |
 
 ## What the API does not do
 

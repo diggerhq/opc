@@ -30,7 +30,7 @@ description: "Environment variables, the configuration file and what opc keeps o
 {
   "apiUrl": "https://app.opencomputer.dev",
   "apiKey": "…",
-  "login": { "credentialId": "cred_…", "keyPrefix": "…", "name": "igor-mbp" }
+  "login": { "credentialId": "cred_…", "keyPrefix": "…", "name": "ada-mbp" }
 }
 ```
 
@@ -42,7 +42,7 @@ Under `~/.opencomputer/opc/`, or `OPC_STATE_DIR`:
 
 | File | Holds | Safe to delete |
 | --- | --- | --- |
-| `state.json` | The last session created or attached on this machine, for `opc a -`, `push`, `pull`, `shell` and `secret` | Yes |
+| `state.json` | The last session created or attached on this machine, for `opc a -`, `push`, `pull` and `shell` | Yes |
 | `sessions.json` | The session list from the last `opc ls` or picker, so `opc ls`, the picker and completions open instantly | Yes |
 | `sessions/<id>.jsonl` | The recorded events of each session you opened on this machine, `0600`, so attaching draws at once and fetches only what is new | Yes |
 | `settings.json` | `opc`'s own settings, written by `opc config`: `{ "telemetry": false }` | Yes: the settings go back to their defaults |

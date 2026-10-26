@@ -108,8 +108,6 @@ A turn writes several blocks: text, then tool calls, then more text. `blockId` t
 | `ask.opened` | The agent raised an ask | `ask`: the [Ask](/api/reference/objects#ask) |
 | `ask.closed` | It was answered, dismissed, declined or interrupted | `ask`: the Ask as it closed. The `actor` is who answered, dismissed or declined it. |
 
-A secret request's `answer` names the scope the secret was set in, never its value.
-
 ## Subagents
 
 | Type | Recorded | When | `data` |
@@ -160,4 +158,4 @@ For one turn, recorded events come in this order:
 
 Nothing is recorded in a turn after its ending event, except the events of its background subagents: their tool calls and `subagent.ended`. Events of different turns do not interleave, except `message.received` and `turn.queued` for messages queued while another turn runs.
 
-If the computer running a turn is lost, the server records the turn's end for it: `tool.failed` with `settledBy` for each open call, `turn.failed` with `runtime_lost`, then `runtime.suspended` with `reason: "lost"`. These start a new `logEpoch`. See [Client libraries](/api/reference/clients#writing-your-own).
+If the computer running a turn is lost, the server records the turn's end for it: `tool.failed` with `settledBy` for each open call, `turn.failed` with `runtime_lost`, then `runtime.suspended` with `reason: "lost"`. These start a new `logEpoch`. See [If a computer is lost](/api/model#if-a-computer-is-lost).

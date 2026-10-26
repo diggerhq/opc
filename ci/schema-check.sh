@@ -2,7 +2,7 @@
 # Checks that schema/computer-api.v1.json, which the fake server in tests/
 # validates every object against, is the schema the Computer API publishes.
 #
-#   CALVIN_DIR=../calvin ci/schema-check.sh   # against calvin's generator
+#   SERVER_DIR=../server ci/schema-check.sh   # against the server's schema generator
 #   ci/schema-check.sh                        # against the published copy
 #
 # Until the published URL serves the schema, a 404 there is a warning, not a
@@ -14,12 +14,12 @@ url=${OPC_SCHEMA_URL:-https://opencomputer.dev/schemas/computer-api.v1.json}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-if [ -n "${CALVIN_DIR:-}" ]; then
-  # --check proves calvin's committed file is what its source emits, and
-  # never writes; then that file is the one to compare with.
-  (cd "$CALVIN_DIR" && node scripts/api-schema.mjs --check) >&2
-  cp "$CALVIN_DIR/schema/computer-api.v1.json" "$tmp/theirs.json"
-  from="calvin ($CALVIN_DIR)"
+if [ -n "${SERVER_DIR:-}" ]; then
+  # --check proves the server's committed schema is what its source emits,
+  # and never writes; then that file is the one to compare with.
+  (cd "$SERVER_DIR" && node scripts/api-schema.mjs --check) >&2
+  cp "$SERVER_DIR/schema/computer-api.v1.json" "$tmp/theirs.json"
+  from="the server's generator ($SERVER_DIR)"
 else
   code=$(curl -sS -o "$tmp/theirs.json" -w '%{http_code}' "$url" || echo 000)
   if [ "$code" != 200 ]; then

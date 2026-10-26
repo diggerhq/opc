@@ -33,7 +33,7 @@ curl -s "$API/sessions/cs_7f3a9k2m4q8r1t6v/events?after=0" -H "x-api-key: $OPENC
 
 `events` are in ascending `seq`. `lastSeq` is the session's newest `seq` when the page was read. `hasMore` is `true` when events past this page remain. Deltas are never included. See [Events](/api/reference/events) for every type.
 
-Events read here are complete. A tool's large `input` or `output` is stored apart from its event and put back when the event is read, so a client sees the same event however it is stored.
+Events read here are complete, including a tool's large `input` or `output`.
 
 With `turnId` or `types`, `seq` values have gaps. Keep using the last `seq` you received as `after`.
 

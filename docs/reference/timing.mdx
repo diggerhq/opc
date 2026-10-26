@@ -43,13 +43,13 @@ Under each of the turn's times, `opc` splits it into four parts:
 | Part | Is |
 | --- | --- |
 | `ours` | Time spent in `opc` on your machine |
-| `server` | Time spent in OpenComputer's edge, relay and computer, as they report it |
+| `server` | Time spent in OpenComputer's edge and computer, as they report it |
 | `network` | The rest: time on the wire between your machine and the computer |
 | `model` | The model's time to its first token, as the computer measured it |
 
 ## What to expect
 
-On a warm computer, with a pre-started agent. A round trip (RTT) is the time to the computer and back; the edge is OpenComputer's nearest point of presence. Opening a connection costs one or two round trips to the nearby edge for TCP and TLS, then one full round trip for the upgrade. The edge and the relay each add at most 2 ms.
+On a warm computer, with a pre-started agent. A round trip (RTT) is the time to the computer and back; the edge is OpenComputer's nearest point of presence. Opening a connection costs one or two round trips to the nearby edge for TCP and TLS, then one full round trip for the upgrade. The edge adds at most 2 ms.
 
 | Path | Target |
 | --- | --- |
@@ -60,7 +60,7 @@ On a warm computer, with a pre-started agent. A round trip (RTT) is the time to 
 | `Enter` → first token, our share | 1 RTT + ≤ 5 ms. The model's time to first token is extra. |
 | `Esc` → turn cancelled | 1 RTT + ≤ 300 ms for the agent to stop |
 | reconnect, network back → caught up | the connection's open time + 1 RTT |
-| resume, suspended → running | p50 ≤ 7.4 s today, started when you pick the session |
+| resume, suspended → running | p50 ≤ 7.4 s, started when you pick the session |
 | cold start, no pre-started agent | + 0.8 s |
 | `opc ls` | 0 ms from the cache, refreshed in 1 RTT |
 | `opc -p`, overhead over the turn | ≤ 1 RTT + 20 ms |
@@ -69,7 +69,7 @@ On a warm computer, with a pre-started agent. A round trip (RTT) is the time to 
 | reading the session over HTTP, behind live | p95 ≤ 150 ms |
 | `opc push`, `opc pull` | ≥ 50 MB/s in the same region, compressed with zstd |
 
-We hold `opc` to these: the median must meet the target and the 95th percentile must be within 1.5 times it, measured from London and US East over 200 warm runs. Times through a proxy are not part of the targets.
+Times through a proxy are not part of the targets.
 
 Slower than this is worth knowing about. The usual causes are a computer that was asleep, an agent started cold because none was pre-started, a session being resumed, or a proxy in the way. `opc doctor` shows which.
 

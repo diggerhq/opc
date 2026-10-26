@@ -23,7 +23,6 @@ Everything here runs without a terminal: nothing prompts, opens a browser or wai
 | `opc rename`, `archive`, `unarchive` | Changes a session | Nothing |
 | `opc push`, `opc pull` | Moves files | `{ sessionId, path, files, bytes, … }`, also with `--dry-run` |
 | `opc diff` | The agent's changes | A git diff, as text |
-| `opc secret ls` | Lists secrets, never values | `{ secrets: [Secret…] }` |
 | `opc whoami` | Who the credential is | What `GET /me` returns |
 | `opc doctor` | Checks the path to your computer | `{ steps: [{ name, ok, ms, detail, error }] }` |
 | `opc schema` | The JSON Schema of the objects above | JSON Schema |
@@ -107,4 +106,4 @@ opc watch "$id" --after "$after" --follow --output-format stream-json \
     done
 ```
 
-`--after` prints every recorded event after the cursor, then live ones, with no gap and no repeat. To catch up and exit instead of following, use `opc log "$id" --after "$after" --output-format stream-json`. Neither resumes a suspended session. Lines without a `seq` (deltas, the Result) are not cursors. In the rare case that a computer is lost mid-turn, the session's `logEpoch` changes and its last events are replaced: see [Writing your own](/api/reference/clients#writing-your-own).
+`--after` prints every recorded event after the cursor, then live ones, with no gap and no repeat. To catch up and exit instead of following, use `opc log "$id" --after "$after" --output-format stream-json`. Neither resumes a suspended session. Lines without a `seq` (deltas, the Result) are not cursors. In the rare case that a computer is lost mid-turn, the session's `logEpoch` changes and its last events are replaced: see [If a computer is lost](/api/model#if-a-computer-is-lost).

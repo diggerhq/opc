@@ -1,7 +1,7 @@
 //! Usage telemetry: how fast opc feels, sent to your own computer.
 //!
-//! What it records (work 084 Q7, the `cli.*` events of the instrumentation
-//! catalog), one event per real occurrence, never a rollup:
+//! What it records (the `cli.*` events), one event per real occurrence,
+//! never a rollup:
 //! - `cli.turn`: a turn you started with Enter: Enter → its first event,
 //!   → its first output received, → that output drawn;
 //! - `cli.attach`: each attach of a session: socket open → drawn, the
@@ -20,11 +20,11 @@
 //!
 //! How it is sent: as a `telemetry` JSON-RPC notification on the WebSocket
 //! opc already has open, about a second after an event, a few events per
-//! frame, within the relay's rate (a burst of 3 frames, then 6 a minute).
-//! Never over a connection of its own, never to an analytics service, never
-//! over HTTP-only use. Your computer's relay checks each event against a
-//! closed table and forwards it with the computer's own telemetry. All
-//! aggregation (percentiles, sums) happens downstream, in Tinybird.
+//! frame, within the server's rate limit (a burst of 3 frames, then 6 a
+//! minute). Never over a connection of its own, never to an analytics
+//! service, never over HTTP-only use. The server checks each event against a
+//! closed table of names and fields. All aggregation (percentiles, sums)
+//! happens downstream.
 //!
 //! Hot path: recording an event is a mutex-guarded push onto a bounded queue
 //! (and a wake of the wire task); nothing here does I/O except reading the
@@ -40,7 +40,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// Events per frame, bytes per frame (the relay drops a frame over either).
+/// Events per frame, bytes per frame (the server drops a frame over either).
 pub const MAX_EVENTS: usize = 20;
 pub const MAX_FRAME_BYTES: usize = 16 * 1024;
 /// How long an event waits for others to share its frame.
@@ -355,7 +355,7 @@ pub async fn drain(limit: Duration) {
 }
 
 /// A token bucket for frames: a burst of 3, refilled at 6 a minute (the
-/// relay's limit, so opc never has a frame dropped for rate).
+/// server's limit, so opc never has a frame dropped for rate).
 #[derive(Debug)]
 pub struct Bucket {
     tokens: f64,

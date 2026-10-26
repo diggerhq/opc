@@ -196,7 +196,7 @@ pub struct Knobs {
     /// Drop the next connection (no close frame) after it has sent this many frames.
     pub ws_drop_after: Option<usize>,
     /// When `true`, an interrupt leaves background subagents running (the docs);
-    /// when `false` (the default) they stop, as calvin measured.
+    /// when `false` (the default) they stop, as the server does today.
     pub interrupt_spares_background: bool,
     /// How many exchange polls answer `authorization_pending` before `authorized`.
     pub device_pending: u32,

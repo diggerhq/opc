@@ -754,7 +754,7 @@ fn watch_json_errors_are_json() {
 // ---- telemetry ------------------------------------------------------------
 
 /// The `telemetry` notifications opc sent, each checked against the closed
-/// table the relay enforces: names, keys, value types and closed strings.
+/// table the server enforces: names, keys, value types and closed strings.
 fn telemetry_frames(fake: &Fake) -> Vec<Value> {
     fake.ws_frames()
         .into_iter()

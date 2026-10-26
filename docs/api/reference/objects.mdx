@@ -1,6 +1,6 @@
 ---
 title: "Objects"
-description: "Session, Turn, Ask, Subagent, Secret, Result, Actor and Capabilities: the shapes every response and event uses."
+description: "Session, Turn, Ask, Subagent, Result, Actor and Capabilities: the shapes every response and event uses."
 ---
 
 The same objects appear in HTTP responses, WebSocket results and event data, byte for byte. Field names are camelCase. Times are ISO 8601 strings in UTC with milliseconds. Fields that do not apply are `null`, not absent: every field listed here is always present.
@@ -17,7 +17,7 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
   "title": "flaky test in segment.test.ts",
   "status": "running",
   "archived": false,
-  "owner": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "email": "igor@acme.dev" },
+  "owner": { "id": "usr_2k9d8f7a", "name": "Ada Lovelace", "email": "ada@acme.dev" },
   "origin": { "type": "opc", "client": "opc/0.1.0", "slack": null },
   "settings": { "model": "claude-opus-5-5", "effort": "high", "mode": "acceptEdits" },
   "metadata": { "job": "ci-fix-tests" },
@@ -48,7 +48,7 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
 | `archived` | boolean | Archived sessions are left out of lists unless asked for. Set with [`PATCH`](/api/http/sessions#update-a-session). Any new message un-archives the session. |
 | `owner` | [Person](#person) | Who started the session. The agent acts as this person. |
 | `origin` | object | Where the session started. `type` is `slack`, `opc`, `dashboard` or `api`, the same values as [`actor.via`](#actor). `client` is the creating client's name and version, from its `User-Agent`, or `null`. `slack` is `{ teamId, channelId, channelName, threadTs, url }` for sessions started in Slack, else `null`. The `type` `session` is reserved for sessions another session starts, which will also carry `origin.parent`: `{ sessionId, callId }`. |
-| `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now. `model` and `effort` are `null` until the session's writer reports them. |
+| `settings` | object | `model` and `effort` for the next turn, and the permission `mode` in force now. `model` and `effort` are `null` until the session reports them. |
 | `metadata` | object | Your own string keys and string values, `{}` when none. At most 20 keys; keys up to 40 characters, values up to 500. Set on create and with `PATCH`. Filter lists with `metadata[key]=value`. |
 | `activeTurnId` | string or null | The running turn |
 | `queued` | array of [Turn](#turn) | Turns waiting to run, in the order they will run |
@@ -58,11 +58,11 @@ The objects and events are also published as JSON Schema, at a stable URL: [`htt
 | `lastText` | string or null | The first 200 characters of the last message the agent wrote, for lists |
 | `context` | object | `usedTokens` of `windowTokens` in the model's context window, as of the last model call's [`usage.recorded`](/api/reference/events#model) |
 | `lastSeq` | integer | The `seq` of the newest event. `0` for a session with no events yet. |
-| `logEpoch` | integer | The log's epoch, from `1`. It changes only when a computer is lost mid-turn and the server records the recovery. See [Client libraries](/api/reference/clients#writing-your-own). |
+| `logEpoch` | integer | The log's epoch, from `1`. It changes only when a computer is lost mid-turn and the server records the recovery. See [If a computer is lost](/api/model#if-a-computer-is-lost). |
 | `epochStartSeq` | integer | The first `seq` recorded in `logEpoch` |
 | `createdAt`, `lastActiveAt` | string | Creation, and the newest event |
-| `syncedAt` | string or null | `null` over the WebSocket, where the writer itself answers. Over HTTP, when the server last heard from the session's writer on the computer. When the computer is not running and `syncedAt` is old, show the session as possibly stale. |
-| `urls` | object | `dashboard`: the session on the dashboard, or `null` over the WebSocket, where the writer does not know it. A Slack session's thread is `origin.slack.url`. |
+| `syncedAt` | string or null | `null` over the WebSocket, where the computer itself answers. Over HTTP, when the server last heard from the session on the computer. When the computer is not running and `syncedAt` is old, show the session as possibly stale. |
+| `urls` | object | `dashboard`: the session on the dashboard, or `null` over the WebSocket. A Slack session's thread is `origin.slack.url`. |
 
 Lists and `GET /sessions/{id}` return the identical object. A session's [capabilities](#capabilities) are read separately.
 
@@ -95,7 +95,7 @@ The short form of a turn that ended, as a session's `lastTurn`. Read the full [T
   "trigger": "message",
   "subagentId": null,
   "input": "fix the flaky test in segment.test.ts and open a PR",
-  "author": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "via": "opc", "client": "opc/0.1.0" },
+  "author": { "id": "usr_2k9d8f7a", "name": "Ada Lovelace", "via": "opc", "client": "opc/0.1.0" },
   "steering": [],
   "createdAt": "2026-10-26T09:01:02.400Z",
   "startedAt": "2026-10-26T09:01:02.415Z",
@@ -229,11 +229,7 @@ Answer: `{ "answers": [{ "questionId": "q1", "choices": ["Make the test wait for
 | `purpose` | Why, in the agent's words |
 | `file` | `true` when the agent wants the value as a file |
 
-<Note>
-Secret requests are not available yet: the agent cannot open one, and the [secrets routes](/api/http/secrets) answer `409 feature_unavailable`. This is how they will work.
-</Note>
-
-A secret request is answered by [setting the secret](/api/http/secrets), never through the ask: the value must not enter the session's history. Setting a secret with this `name` that reaches this session answers the ask, and `answer` becomes `{ "scope" }`, the scope it was set in, such as `{ "scope": "session" }`.
+A secret request is answered in Slack. It cannot be answered through the API or `opc`.
 
 ## Subagent
 
@@ -286,32 +282,6 @@ A subagent is an agent the session's agent starts to do part of the work, such a
 `activity`, `toolCalls` and `tokens` come from [`subagent.progress`](/api/reference/events#subagents), which is not recorded. Every read returns their latest values.
 
 A background subagent keeps running after its turn completes. An [interrupt](/api/http/control#interrupt) of its turn stops it, as it stops foreground ones: with Claude Code, an interrupt stops the turn and all of its subagents. An explicit [suspend](/api/http/control#suspend) stops every subagent. Either way it ends as `stopped`, with `stoppedBy: null`. When a background subagent ends, Claude Code starts a turn with `trigger: "subagent"` to read its result.
-
-## Secret
-
-A secret's name and where it applies. Its value is never returned.
-
-```json
-{
-  "name": "STRIPE_API_KEY",
-  "scope": "session",
-  "sessionId": "cs_7f3a9k2m4q8r1t6v",
-  "file": false,
-  "effective": null,
-  "setBy": { "id": "usr_2k9d8f7a", "name": "Igor Zalutski", "via": "api", "client": null },
-  "updatedAt": "2026-10-26T09:07:30.551Z"
-}
-```
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `name` | string | The environment variable sessions get |
-| `scope` | string | `session`, `me` or `organization`. See [Scopes](/api/http/secrets#scopes). |
-| `sessionId` | string or null | The session, for scope `session` |
-| `file` | boolean | `true` when the value is delivered as a file whose path is in the variable |
-| `effective` | boolean or null | In a [list](/api/http/secrets#list-secrets) read with `sessionId`: `true` for the secret the session uses for this name, `false` for one a narrower scope overrides. Otherwise `null`. |
-| `setBy` | [Actor](#actor) | Who last set it |
-| `updatedAt` | string | When it was last set |
 
 ## Result
 

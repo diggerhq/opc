@@ -87,7 +87,7 @@ Allowing a plan, an approval whose `approval.toolName` is `ExitPlanMode`, also s
 
 One entry per question in `question.questions`, every question answered. `choices` are option labels, exactly as given. At most one unless the question has `multiSelect`. `text` is an answer in your own words, alone or with choices.
 
-**Secret.** A secret ask cannot be answered through this route, which would put the value in the session's history. [Set the secret](/api/http/secrets#set-a-secret) instead. Setting a secret named `secret.name` that reaches the session answers the ask. This route returns `400 answer_with_secret`.
+**Secret.** A secret ask cannot be answered through this route. It is answered in Slack. This route returns `400 answer_with_secret`.
 
 The response is `200 { "ask": Ask, "seq" }`, the ask closed, with `closedBy` and `answer` set. `seq` is the ask's `ask.closed` event.
 

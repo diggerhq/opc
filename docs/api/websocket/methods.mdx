@@ -25,9 +25,9 @@ A method is named `<plural resource>.<verb>`, and maps to the HTTP route of the 
 | [`terminals.open`, `terminals.resize`, `terminals.eof`, `terminals.close`](/api/websocket/terminals) | none |
 | `ping` | none |
 
-Everything not in this table is HTTP only, such as creating and listing sessions, files, secrets and tickets. With the methods above, a browser holding only a ticket can read everything it was shown.
+Everything not in this table is HTTP only, such as creating and listing sessions, files and tickets. With the methods above, a browser holding only a ticket can read everything it was shown.
 
-The result of every write carries `seq`, the `seq` of the last event the write caused. To read it back over HTTP, pass it as `minSeq`. See [Client libraries](/api/reference/clients#writing-your-own).
+The result of every write carries `seq`, the `seq` of the last event the write caused. To read it back over HTTP, pass it as `minSeq`. See [Consistency](/api/model#consistency).
 
 ## Attach
 
@@ -65,7 +65,7 @@ The result is the session, current as of the moment you attached:
 | Field | Meaning |
 | --- | --- |
 | `session` | The [Session](/api/reference/objects#session) |
-| `logEpoch`, `epochStartSeq` | The session's, repeated for the [epoch check](/api/reference/clients#writing-your-own) |
+| `logEpoch`, `epochStartSeq` | The session's, repeated for the [epoch check](/api/model#if-a-computer-is-lost) |
 | `capabilities` | The session's [Capabilities](/api/reference/objects#capabilities) |
 | `earlierTurns` | With `tailTurns`: the [Turns](/api/reference/objects#turn) before the last `tailTurns`, newest first, at most 50. Else `null`. |
 | `timing.serverUs` | Time the server spent on the attach, in microseconds |
@@ -139,7 +139,7 @@ A delta for a `blockId` or `callId` whose completed event you already applied is
 | `access_lost` | You can no longer see the session, such as after your key lost a scope | Stop showing it |
 | `too_far_behind` | You fell more than 8 MiB or 10,000 events behind on this session | Attach again with `after` set to your last applied `seq`. See [Flow control](/api/websocket/flow-control). |
 | `epoch_changed` | The session's `logEpoch` changed: its computer was lost mid-turn | Discard what you applied at or after the new `epochStartSeq` and attach again with `after` set to `epochStartSeq - 1`. See [If a computer is lost](/api/model#if-a-computer-is-lost). |
-| `unavailable` | The session's writer cannot be reached for now, such as while your computer restarts | Attach again with `after` set to your last applied `seq`, with backoff |
+| `unavailable` | The session cannot be reached for now, such as while your computer restarts | Attach again with `after` set to your last applied `seq`, with backoff |
 
 ## Errors
 
