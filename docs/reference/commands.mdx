@@ -347,3 +347,5 @@ Shows or sets whether `opc` sends [telemetry](/reference/telemetry). Without `on
 - If that command then cannot parse the rest, `opc` does nothing and exits `2` with `opc: "push the fix to main" looks like a message. Quote it: opc "push the fix to main"`.
 - Several unquoted words that do not start with a command name are joined into one message: `opc why is the build red` sends "why is the build red".
 - `opc -- <words>` always sends: `opc -- ls` sends "ls".
+- Options work before or after the message: `opc -p "fix the build" --output-format json` is `opc -p --output-format json "fix the build"`. The same holds for `opc new` and `opc send`.
+- A word that starts with `-` is read as an option. To send one, put it after `--`: `opc -p -- -v makes it verbose` sends "-v makes it verbose". Negative numbers such as `-1` need no `--`.
