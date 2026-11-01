@@ -75,6 +75,7 @@
               "api/http/control",
               "api/http/events",
               "api/http/workspace",
+              "api/http/secrets",
               "api/http/tickets"
             ]
           },
