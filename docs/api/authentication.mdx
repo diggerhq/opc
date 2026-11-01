@@ -33,6 +33,7 @@ A key has every scope unless it was created with fewer. Give a program a key wit
 | `sessions:write` | Creating sessions, sending messages, interrupting, compacting, suspending and resuming, updating sessions and uploading files |
 | `asks:answer` | Answering and dismissing asks |
 | `terminals` | Opening [terminals](/api/websocket/terminals) |
+| `secrets:write` | Setting and deleting [organization secrets](/api/http/secrets). Only a key created naming it has it: `*` and `sandbox:*` do not include it |
 
 A request the key's scopes do not cover fails with `403 forbidden`, `"reason": "missing_scope"` and `scope` naming the one it needs. A scope never grants more than the member can do.
 
