@@ -276,6 +276,7 @@ impl Follower {
             },
             WireEvent::Event(e) => {
                 crate::telemetry::print_step(e.turn_id(), e.kind());
+                crate::timing::get().turn_step(e.turn_id(), e.kind());
                 if let Some(st) = self.states.get_mut(e.session_id()) {
                     st.apply_event(&e);
                 }
@@ -283,6 +284,7 @@ impl Follower {
             }
             WireEvent::Delta(d) => {
                 crate::telemetry::print_step(d.turn_id(), d.kind());
+                crate::timing::get().turn_step(d.turn_id(), d.kind());
                 if let Some(st) = self.states.get_mut(d.session_id()) {
                     st.apply_delta(&d);
                 }

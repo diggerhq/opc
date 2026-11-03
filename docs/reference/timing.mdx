@@ -9,21 +9,22 @@ description: "What --timing measures, and the numbers to expect."
 $ opc --timing
 …
 launch
-  process start → prompt                  4 ms
-  session create (API)                   92 ms   ┐ in parallel
-  connection open + attach              104 ms   ┘
-  launch → ready                        108 ms
-  agent start                          warm · 11 ms
+  process start → prompt                     4 ms
+  session create (API)                      92 ms   ┐ in parallel
+  connection open + attach                 104 ms   ┘
+  launch → ready                           108 ms
+  agent start                        warm · 11 ms
 last turn (tn_4m8q)
-  enter → accepted                       84 ms
+  enter → accepted                          84 ms
     ours 1 ms · server 3 ms · network 80 ms
-  enter → first token                  1.39 s
+  enter → first token                      1.39 s
     ours 1 ms · server 4 ms · network 80 ms · model 1.30 s
-  first token → last token             8.20 s
-  render, worst frame                    2 ms
+  first token → last token                 8.20 s
+  render, worst frame                        2 ms
 connection
-  round trip (median of last 20 pings)   80 ms
-  edge                                  LHR → IAD
+  round trip (median of last 20)            80 ms
+  edge                                        iad
+total                                      9.84 s
 ```
 
 | Measurement | From | To |
@@ -37,6 +38,10 @@ connection
 | enter → first token | `Enter` | The first character of the reply on screen |
 | first token → last token | The first character of the reply | The last |
 | render, worst frame | A screen update starting | It being written to the terminal |
+| launch → first output | `opc -p` starting | The turn's first output arriving: text, reasoning, a tool call or an ask |
+| launch → turn ended | `opc -p` starting | The turn completing, failing or being cancelled |
+
+A section with nothing measured is left out: `opc -p` has no `enter`, so its last turn shows the two `launch →` rows instead, and `edge` appears only when the server names its region.
 
 Under each of the turn's times, `opc` splits it into four parts:
 

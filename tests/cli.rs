@@ -58,6 +58,19 @@ fn print_replies_and_exits_zero() {
     fake.assert_no_panics();
 }
 
+#[test]
+fn print_timing_reports_the_turn() {
+    let fake = Fake::start();
+    let o = run(&fake, &["--timing", "-p", "reply hello there"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let report = &o.stderr[o.stderr.find("launch\n").unwrap_or_else(|| panic!("no report: {}", o.stderr))..];
+    assert!(report.contains("\n  launch → first output "), "{report}");
+    assert!(report.contains("\n  launch → turn ended "), "{report}");
+    assert!(report.contains("\n  edge ") && report.trim_end().contains("fra"), "{report}");
+    assert!(report.lines().all(|l| l == l.trim_end()), "trailing whitespace: {report:?}");
+    fake.assert_no_panics();
+}
+
 // ---- -p and the Result --------------------------------------------------
 
 #[test]

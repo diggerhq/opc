@@ -932,7 +932,8 @@ impl Actor {
         self.retry_at = None;
         self.keepalive_at = Instant::now() + KEEPALIVE;
         let connection_id = params.get("connectionId").and_then(Value::as_str).unwrap_or("").to_string();
-        let region = params.pointer("/server/region").and_then(Value::as_str).map(str::to_string);
+        // An empty region is no region (`doctor` and `--timing` would print a blank).
+        let region = params.pointer("/server/region").and_then(Value::as_str).map(str::trim).filter(|r| !r.is_empty()).map(str::to_string);
         if !reconnect {
             crate::timing::get().mark_connect(took, resumed_tls);
         }
