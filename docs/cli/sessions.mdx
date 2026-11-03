@@ -34,6 +34,8 @@ The prompt line is live at once. If the session cannot be created, because the n
 
 `opc --` followed by words always sends them: `opc -- ls` sends "ls".
 
+Options can come before or after the message: `opc -p "fix the flaky test" --output-format json` sends "fix the flaky test". A word that starts with `-` is an option, so put a message that has one after `--`: `opc -p -- -v makes it verbose`.
+
 ## List sessions
 
 ```

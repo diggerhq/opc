@@ -77,6 +77,34 @@ fn print_json_result_validates() {
     fake.assert_no_panics();
 }
 
+/// `opc -p "x" --output-format json`, as people write it after `claude -p`:
+/// the options are options and the agent gets exactly the message.
+#[test]
+fn options_after_the_message_are_options() {
+    let fake = Fake::start();
+    let o = run(&fake, &["-p", "x", "--output-format", "json", "--timing"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let r = o.json();
+    check("Result", &r);
+    assert_eq!(r["result"], "You said: x");
+    let sid = r["sessionId"].as_str().unwrap();
+    assert_eq!(fake.turns(sid)[0]["input"], "x");
+    assert!(o.stderr.contains("session create (API)"), "no timing report: {}", o.stderr);
+
+    // After `--`, words that look like options are the message.
+    let o = run(&fake, &["-p", "--json", "--", "--weird", "text"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let r = o.json();
+    assert_eq!(fake.turns(r["sessionId"].as_str().unwrap())[0]["input"], "--weird text");
+
+    // The same for a command's message.
+    let o = run(&fake, &["send", sid, "reply", "again", "--wait", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["result"], "again");
+    assert_eq!(fake.turns(sid)[1]["input"], "reply again");
+    fake.assert_no_panics();
+}
+
 #[test]
 fn print_stream_json_has_init_and_result_lines() {
     let fake = Fake::start();

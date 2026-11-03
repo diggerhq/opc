@@ -45,7 +45,8 @@ pub struct Cli {
     #[command(flatten)]
     pub run: RunArgs,
     /// The message. Several words are joined; `-` reads standard input.
-    #[arg(value_name = "MESSAGE", trailing_var_arg = true)]
+    /// Options go before or after it; after `--`, every word is message.
+    #[arg(value_name = "MESSAGE", allow_negative_numbers = true)]
     pub message: Vec<String>,
 }
 
@@ -931,6 +932,57 @@ mod tests {
         assert_eq!(c.message, vec!["hello"]);
         let c = p(&["--timing", "ls"]).unwrap();
         assert!(c.global.timing);
+    }
+
+    #[test]
+    fn options_after_the_message_are_options() {
+        let c = p(&["-p", "x", "--output-format", "json"]).unwrap();
+        assert_eq!(c.message, vec!["x"]);
+        assert_eq!(c.run.format(), Format::Json);
+        let c = p(&["-p", "say", "ok", "--timing", "--json", "-q"]).unwrap();
+        assert_eq!(c.message, vec!["say", "ok"]);
+        assert!(c.global.timing && c.global.quiet && c.run.json);
+        let c = p(&["why", "is", "--model", "m", "the", "build", "red"]).unwrap();
+        assert_eq!(c.message.join(" "), "why is the build red");
+        assert_eq!(c.run.new.model.as_deref(), Some("m"));
+        let c = p(&["-", "-p", "--json"]).unwrap();
+        assert_eq!(c.message, vec!["-"]);
+        assert!(c.run.print && c.run.json);
+        let c = p(&["-p", "rate", "it", "-1", "to", "5"]).unwrap();
+        assert_eq!(c.message.join(" "), "rate it -1 to 5");
+    }
+
+    #[test]
+    fn after_a_double_dash_every_word_is_message() {
+        let c = p(&["-p", "--", "--weird", "text"]).unwrap();
+        assert_eq!(c.message, vec!["--weird", "text"]);
+        assert!(c.run.print);
+        let c = p(&["-p", "what", "does", "--", "-la", "--json", "do"]).unwrap();
+        assert_eq!(c.message.join(" "), "what does -la --json do");
+        assert!(!c.run.json);
+        // A hyphen word before `--` is an option, so an unknown one is an error.
+        assert!(p(&["-p", "what", "does", "-la", "do"]).is_err());
+    }
+
+    #[test]
+    fn command_messages_take_options_anywhere() {
+        let c = p(&["send", "cs_0123456789abcdefgh", "hi", "there", "--wait", "--json"]).unwrap();
+        let Some(Command::Send(a)) = c.command else { panic!("send") };
+        assert_eq!(a.args, vec!["cs_0123456789abcdefgh", "hi", "there"]);
+        assert!(a.wait && a.json);
+        let c = p(&["new", "hi", "--model", "m", "there", "--json"]).unwrap();
+        let Some(Command::New(a)) = c.command else { panic!("new") };
+        assert_eq!(a.message, vec!["hi", "there"]);
+        assert!(a.json);
+        assert_eq!(a.new.model.as_deref(), Some("m"));
+        let c = p(&["send", "cs_0123456789abcdefgh", "--", "--wait"]).unwrap();
+        let Some(Command::Send(a)) = c.command else { panic!("send") };
+        assert_eq!(a.args, vec!["cs_0123456789abcdefgh", "--wait"]);
+        assert!(!a.wait);
+        let c = p(&["rename", "cs_0123456789abcdefgh", "new", "title", "--timing"]).unwrap();
+        assert!(c.global.timing);
+        let Some(Command::Rename(a)) = c.command else { panic!("rename") };
+        assert_eq!(a.args, vec!["cs_0123456789abcdefgh", "new", "title"]);
     }
 
     #[test]
