@@ -323,7 +323,7 @@ impl Command {
             Command::Subagents(a) => a.json(),
             Command::Push(a) => a.json,
             Command::Pull(a) => a.json,
-            Command::Whoami(a) | Command::Doctor(a) => a.json,
+            Command::Whoami(a) | Command::Doctor(a) => a.is_json(),
             Command::Config(ConfigCommand::Telemetry(a)) => a.json,
             _ => false,
         }
@@ -750,8 +750,25 @@ pub struct LoginArgs {
 
 #[derive(Debug, Args)]
 pub struct JsonOnly {
-    #[arg(long)]
+    /// text or json
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    pub output_format: Option<TextOrJson>,
+    /// Short for --output-format json
+    #[arg(long, conflicts_with = "output_format")]
     pub json: bool,
+}
+
+impl JsonOnly {
+    pub fn is_json(&self) -> bool {
+        self.json || self.output_format == Some(TextOrJson::Json)
+    }
+}
+
+/// `--output-format` of a command that prints one object, not a stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum TextOrJson {
+    Text,
+    Json,
 }
 
 #[derive(Debug, Args)]

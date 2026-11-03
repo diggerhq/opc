@@ -5,7 +5,6 @@ use super::{Ctx, print_json, println_out};
 use crate::cli::JsonOnly;
 use crate::config::KeySource;
 use crate::error::{Error, Result, exit};
-use crate::render::duration;
 use crate::wire::WireEvent;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -33,10 +32,7 @@ impl Doctor<'_> {
     }
     fn show(&mut self, s: Step) {
         if !self.json {
-            let style = crate::render::Style { color: self.ctx.color };
-            let mark = if s.ok { style.green("✓") } else { style.red("✗") };
-            let time = s.ms.map(duration).unwrap_or_else(|| if s.ok { "(same request)".into() } else { String::new() });
-            println_out(&format!("{mark} {:<13} {:<46} {time}", s.name, s.detail));
+            println_out(&line(&s, self.ctx.color));
         }
         self.steps.push(s);
     }
@@ -48,7 +44,7 @@ impl Doctor<'_> {
                 .iter()
                 .map(|s| json!({"name": s.name, "ok": s.ok, "ms": s.ms, "detail": s.detail, "error": s.error.as_ref().map(|e| json!({"code": e.code, "message": e.message}))}))
                 .collect();
-            print_json(self.ctx, &json!({"steps": steps}));
+            print_json(self.ctx, &json!({"ok": self.steps.iter().all(|s| s.ok), "steps": steps}));
         }
         match failed {
             None => Ok(exit::OK),
@@ -63,12 +59,33 @@ impl Doctor<'_> {
     }
 }
 
+/// One step as a line: mark, name, detail, time.
+fn line(s: &Step, color: bool) -> String {
+    let style = crate::render::Style { color };
+    let mark = if s.ok { style.green("✓") } else { style.red("✗") };
+    let time = match s.ms {
+        Some(ms) if ms < 1000 => format!("{ms} ms"),
+        Some(ms) => format!("{:.1} s", ms as f64 / 1000.0),
+        None if s.ok => "(same request)".into(),
+        None => String::new(),
+    };
+    format!("{mark} {:<13} {:<46} {time}", s.name, s.detail).trim_end().to_string()
+}
+
+/// The connection's URL, and the server's region when it names one.
+fn connection_detail(url: String, region: Option<String>) -> String {
+    match region.filter(|r| !r.is_empty()) {
+        Some(r) => format!("{url} · {r}"),
+        None => url,
+    }
+}
+
 fn ms(t: Instant) -> Option<u64> {
     Some(t.elapsed().as_millis() as u64)
 }
 
 pub async fn run(ctx: &Ctx, a: JsonOnly) -> Result<i32> {
-    let mut d = Doctor { ctx, json: a.json, steps: Vec::new() };
+    let mut d = Doctor { ctx, json: a.is_json(), steps: Vec::new() };
     let home = crate::config::home();
     let path = ctx.config.path.strip_prefix(&home).map(|p| format!("~/{}", p.display())).unwrap_or_else(|_| ctx.config.path.display().to_string());
 
@@ -140,10 +157,7 @@ pub async fn run(ctx: &Ctx, a: JsonOnly) -> Result<i32> {
     .await
     .unwrap_or_else(|_| Err(Error::new("timeout", "no answer in 20 s")));
     match opened {
-        Ok(region) => d.pass("connection", ms(t), match region {
-            Some(r) => format!("{url} · {r}"),
-            None => url,
-        }),
+        Ok(region) => d.pass("connection", ms(t), connection_detail(url, region)),
         Err(e) => {
             d.fail("connection", ms(t), e);
             return d.finish();
@@ -174,5 +188,37 @@ fn source(ctx: &Ctx) -> String {
     match ctx.config.key_source {
         Some(KeySource::Env) => "OPENCOMPUTER_API_KEY".into(),
         _ => ctx.config.file.login.as_ref().and_then(|l| l.name.clone()).unwrap_or_else(|| "saved key".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(name: &'static str, ok: bool, ms: Option<u64>, detail: &str) -> Step {
+        Step { name, ok, ms, detail: detail.into(), error: None }
+    }
+
+    #[test]
+    fn lines() {
+        assert_eq!(
+            line(&step("config", true, Some(0), "~/.opencomputer/config.json"), false),
+            "✓ config        ~/.opencomputer/config.json                    0 ms"
+        );
+        assert_eq!(line(&step("credential", true, Some(287), "ci"), false), format!("✓ credential    {:<46} 287 ms", "ci"));
+        assert_eq!(
+            line(&step("api", true, None, "https://app.opencomputer.dev"), false),
+            "✓ api           https://app.opencomputer.dev                   (same request)"
+        );
+        assert_eq!(line(&step("round trip", true, Some(1600), "x"), false), format!("✓ round trip    {:<46} 1.6 s", "x"));
+        assert_eq!(line(&step("credential", false, None, "no credential"), false), "✗ credential    no credential");
+    }
+
+    #[test]
+    fn connection_without_a_region_has_no_separator() {
+        let url = || "wss://wire.opencomputer.dev/v1".to_string();
+        assert_eq!(connection_detail(url(), None), "wss://wire.opencomputer.dev/v1");
+        assert_eq!(connection_detail(url(), Some(String::new())), "wss://wire.opencomputer.dev/v1");
+        assert_eq!(connection_detail(url(), Some("fra".into())), "wss://wire.opencomputer.dev/v1 · fra");
     }
 }

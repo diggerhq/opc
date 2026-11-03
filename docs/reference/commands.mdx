@@ -8,7 +8,7 @@ description: "Every opc command and option."
 - **Choosing a session.** Every command that acts on a session accepts `-s`, `--session <id>`. Commands whose first operand is a session also take it in that place: `opc send cs_7f3a9k2m4q8r1t6v "…"` and `opc send -s cs_7f3a9k2m4q8r1t6v "…"` are the same.
 - **Session arguments.** Wherever a command takes `<id>`, it accepts a full id (`cs_7f3a9k2m4q8r1t6v`), a unique prefix of four or more characters (`7f3a`), `-` for the last session on this machine, or a Slack thread link. A word that is a valid prefix of a session you can see is an id; any other word is a title search, where the command allows one. Prefixes are for people: scripts should pass full ids, which never become ambiguous.
 - **The last session** is the one most recently created or attached on this machine, including by `opc -p`. `push`, `pull`, `shell` and `subagents` use it when you name no session, but only when standard input is a terminal. In a script they fail with `usage` and `pass -s <id>`. `opc a` with no session opens the picker, which also needs a terminal. `send`, `wait`, `watch`, `interrupt`, `log` and `diff` always need a session.
-- **Output.** Every command that prints data accepts `--json`. Commands that print a session's activity also accept `--output-format text|json|stream-json`; `--json` is short for `--output-format json`. JSON goes to standard output, messages for people to standard error.
+- **Output.** Every command that prints data accepts `--json`. Commands that print a session's activity also accept `--output-format text|json|stream-json`, and `whoami` and `doctor` accept `--output-format text|json`; `--json` is short for `--output-format json`. JSON goes to standard output, messages for people to standard error.
 - **Outcomes and errors.** The outcome of a turn (completed, failed, cancelled, waiting) is a [Result](/api/reference/objects#result) object on standard output. A command failure (usage, authentication, unreachable…) is `{"error": …}` on standard error. Errors are JSON whenever any JSON output format is selected. See [Exit codes](/reference/exit-codes).
 - **Idempotency keys.** `--idempotency-key <k>` on `opc -p`, `opc new`, `opc send` and `opc push` makes a retry safe: a repeat within 24 hours does nothing new. Commands that make several requests derive one key per request: `<k>:create`, `<k>:upload:<n>`, `<k>:send`. See [Scripting](/cli/scripting#retrying-safely).
 - **Metadata.** `--metadata key=value`, repeatable, sets a new session's [metadata](/api/reference/objects#session). On `opc ls` it filters.
@@ -295,7 +295,7 @@ Opens a shell in a session's workspace. See [Shell](/cli/shell).
 ```
 opc login [--no-browser] [--force]
 opc logout
-opc whoami [--json]
+opc whoami [--json | --output-format text|json]
 ```
 
 `whoami --json` prints what [`GET /me`](/api/authentication) returns. See [Logging in](/cli/auth).
@@ -303,10 +303,27 @@ opc whoami [--json]
 ## opc doctor
 
 ```
-opc doctor [--json]
+opc doctor [--json | --output-format text|json]
 ```
 
-Checks, in order, and stops at the first failure: the configuration file, the credential, the API, your computer, the connection to it, and a round trip through it. Prints each step's time. `--json` prints `{ "steps": [{ name, ok, ms, detail, error }] }`, with the failure in its step's `error` rather than on standard error. Run it first when something is wrong. See [Troubleshooting](/troubleshooting).
+Checks, in order, and stops at the first failure: the configuration file, the credential, the API, your computer, the connection to it, and a round trip through it. Prints each step's time. Run it first when something is wrong. See [Troubleshooting](/troubleshooting).
+
+`--json` prints one object: `ok` is whether every step passed, and `steps` has the steps that ran, in order. A step's `ms` is its time, or `null` when it shared the request of the step before; `error` is `null` unless it failed. The failure is in its step's `error` rather than on standard error, and the exit code is that error's, as without `--json`.
+
+```json
+{
+  "ok": false,
+  "steps": [
+    { "name": "config", "ok": true, "ms": 0, "detail": "~/.opencomputer/config.json", "error": null },
+    { "name": "credential", "ok": true, "ms": 287, "detail": "ada-mbp · Ada Lovelace · acme", "error": null },
+    { "name": "api", "ok": true, "ms": null, "detail": "https://app.opencomputer.dev", "error": null },
+    { "name": "computer", "ok": false, "ms": null, "detail": "not set up",
+      "error": { "code": "computer_not_set_up", "message": "not set up" } }
+  ]
+}
+```
+
+The names are `config`, `credential`, `api`, `computer`, `connection` and `round trip`.
 
 ## opc schema
 

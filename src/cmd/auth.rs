@@ -149,7 +149,7 @@ pub async fn whoami(ctx: &Ctx, a: JsonOnly) -> Result<i32> {
     if let Some(u) = crate::wire::reconnect::wire_url_from_me(&me) {
         crate::cache::set_wire_url(&ctx.config.api_url, &u);
     }
-    if a.json {
+    if a.is_json() {
         print_json(ctx, &me);
         return Ok(0);
     }

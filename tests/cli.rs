@@ -634,6 +634,42 @@ fn whoami_and_doctor() {
 }
 
 #[test]
+fn doctor_output_format_json() {
+    let fake = Fake::start();
+    let o = run(&fake, &["doctor", "--output-format", "json"]);
+    assert_eq!(o.code, 0, "{}\n{}", o.stdout, o.stderr);
+    let v = o.json();
+    assert_eq!(v["ok"], true, "{v}");
+    let names: Vec<&str> = v["steps"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["config", "credential", "api", "computer", "connection", "round trip"]);
+    let conn = &v["steps"][4];
+    assert!(conn["ms"].is_u64() && conn["error"].is_null(), "{conn}");
+    assert!(conn["detail"].as_str().unwrap().ends_with(" · fra"), "{conn}");
+
+    // Text: plain lines without a terminal, times as `12 ms`.
+    let o = run(&fake, &["doctor"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(!o.stdout.contains('\x1b'), "{}", o.stdout);
+    let config = o.stdout.lines().next().unwrap();
+    assert!(config.starts_with("✓ config") && config.ends_with(" ms"), "{config}");
+
+    // A failed check: its error in the step, the step's exit code, nothing on stderr.
+    fake.set_computer_status("not_set_up");
+    let o = run(&fake, &["doctor", "--output-format", "json"]);
+    assert_eq!(o.code, 3, "{}\n{}", o.stdout, o.stderr);
+    let v = o.json();
+    assert_eq!(v["ok"], false);
+    let last = v["steps"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["name"], "computer");
+    assert_eq!(last["ok"], false);
+    assert_eq!(last["error"]["code"], "computer_not_set_up");
+    assert!(o.stderr.is_empty(), "{}", o.stderr);
+
+    let o = run(&fake, &["doctor", "--output-format", "stream-json"]);
+    assert_eq!(o.code, 2, "{}", o.stderr);
+}
+
+#[test]
 fn messages_that_look_like_commands() {
     let fake = Fake::start();
     let o = run(&fake, &["-p", "ls the files"]);
