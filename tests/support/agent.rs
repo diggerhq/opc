@@ -191,6 +191,30 @@ pub async fn run_turn(sh: Arc<Shared>, sid: String, tid: String) {
                 r.reply(&format!("done after {ms} ms")).await;
             }
         }
+        // "run the tests …": what the Computer's environment decides.
+        "run" => {
+            let ready = r.sh.read(|w| w.env.has("postgresql"));
+            let c = call_id();
+            if !r.tool_started(None, "Bash", &c, None, "pnpm test", json!({"command": "cd acme-service && pnpm test", "description": "pnpm test"})) || !r.pause(r.step * 12).await {
+                return;
+            }
+            if ready {
+                if r.tool_ended(&c, true, json!("Test Files  9 passed (9)\n     Tests  42 passed (42)\n"), "") {
+                    r.reply("All 42 tests in acme-service pass.").await;
+                }
+                return;
+            }
+            if !r.tool_ended(&c, true, json!("sh: 1: pnpm: not found\n"), "") || !r.pause(r.step * 4).await {
+                return;
+            }
+            let c = call_id();
+            if !r.tool_started(None, "Bash", &c, None, "sudo apt-get install -y postgresql-16", json!({"command": "sudo apt-get install -y postgresql-16"})) || !r.pause(r.step * 8).await {
+                return;
+            }
+            if r.tool_ended(&c, true, json!("sudo: a password is required\n"), "") {
+                r.reply("I could not run the tests. acme-service needs pnpm and a running Postgres 16, and neither is installed on this computer. I cannot install them: there is no root here. Set up the environment once with `opc env setup`, and every session will start with them.").await;
+            }
+        }
         "tool" => {
             let c = call_id();
             if !r.tool_started(None, "Bash", &c, None, "echo hi", json!({"command": "echo hi", "description": "echo hi"})) || !r.tick().await {

@@ -31,6 +31,7 @@
 
 mod agent;
 mod api;
+mod env;
 mod http;
 pub mod model;
 mod schema;
@@ -366,7 +367,7 @@ impl Fake {
         let wire_url = format!("ws://127.0.0.1:{port}/v1");
         let (bus, _) = broadcast::channel(65536);
         let (ctl, _) = broadcast::channel(64);
-        let world = World { sessions: vec![], idem: Default::default(), jobs: vec![], bus: bus.clone(), interrupt_spares_background: false };
+        let world = World { sessions: vec![], idem: Default::default(), jobs: vec![], bus: bus.clone(), interrupt_spares_background: false, env: Default::default() };
         let sh = Arc::new(Shared {
             world: Mutex::new(world),
             version: watch::channel(0).0,
@@ -402,8 +403,9 @@ impl Fake {
     }
 
     /// The opc binary, with its environment pointed at this fake.
+    #[allow(clippy::option_env_unwrap)] // the example that runs the fake standalone has no opc binary
     pub fn opc(&self) -> assert_cmd::Command {
-        let mut c = assert_cmd::Command::new(env!("CARGO_BIN_EXE_opc"));
+        let mut c = assert_cmd::Command::new(option_env!("CARGO_BIN_EXE_opc").expect("only in integration tests"));
         for (k, v) in self.env() {
             c.env(k, v);
         }

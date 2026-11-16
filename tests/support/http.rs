@@ -287,6 +287,10 @@ async fn api_route(sh: &Arc<Shared>, method: &str, rel: &str, query: &str, heade
             Err(e) => return Err(ApiErr::bad("body", format!("the body is not JSON: {e}"))),
         }
     };
+    if segs[0] == "environment" {
+        let (status, v) = super::env::route(sh, method, &segs, &q, &parsed, &actor).await?;
+        return Ok(Out::Json(status, v));
+    }
     let (op, sid, sub): (&str, Option<&str>, Option<&str>) = match (method, segs.as_slice()) {
         ("GET", ["me"]) => ("me", None, None),
         ("POST", ["tickets"]) => ("tickets.create", None, None),
