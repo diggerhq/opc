@@ -193,18 +193,18 @@ pub async fn run_turn(sh: Arc<Shared>, sid: String, tid: String) {
         }
         // "run the tests …": what the Computer's environment decides.
         "run" => {
-            let ready = r.sh.read(|w| w.env.has("postgresql"));
+            let ready = r.sh.read(|w| w.env.has("postgis"));
             let c = call_id();
-            if !r.tool_started(None, "Bash", &c, None, "pnpm test", json!({"command": "cd acme-service && pnpm test", "description": "pnpm test"})) || !r.pause(r.step * 12).await {
+            if !r.tool_started(None, "Bash", &c, None, "npm ci && npm test", json!({"command": "cd opencomputer-environment-demo && npm ci && npm test", "description": "npm test"})) || !r.pause(r.step * 12).await {
                 return;
             }
             if ready {
-                if r.tool_ended(&c, true, json!("Test Files  9 passed (9)\n     Tests  42 passed (42)\n"), "") {
-                    r.reply("All 42 tests in acme-service pass.").await;
+                if r.tool_ended(&c, true, json!("tests 7\npass 7\nfail 0\n"), "") {
+                    r.reply("All 7 tests pass.").await;
                 }
                 return;
             }
-            if !r.tool_ended(&c, true, json!("sh: 1: pnpm: not found\n"), "") || !r.pause(r.step * 4).await {
+            if !r.tool_ended(&c, true, json!("tests 7\npass 0\nfail 7\nError: connect ECONNREFUSED 127.0.0.1:5432\n"), "") || !r.pause(r.step * 4).await {
                 return;
             }
             let c = call_id();
@@ -212,7 +212,7 @@ pub async fn run_turn(sh: Arc<Shared>, sid: String, tid: String) {
                 return;
             }
             if r.tool_ended(&c, true, json!("sudo: a password is required\n"), "") {
-                r.reply("I could not run the tests. acme-service needs pnpm and a running Postgres 16, and neither is installed on this computer. I cannot install them: there is no root here. Set up the environment once with `opc env setup`, and every session will start with them.").await;
+                r.reply("I could not run the tests. All 7 fail with `connect ECONNREFUSED 127.0.0.1:5432`: they need Postgres 16 with PostGIS, and it is not installed on this computer. I cannot install it, because there is no root here. Set up the environment once with `opc env setup`, and every session will start with it.").await;
             }
         }
         "tool" => {

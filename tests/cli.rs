@@ -920,15 +920,15 @@ fn env_setup_changes_what_sessions_start_with() {
     let fake = Fake::start();
     let o = run(&fake, &["env"]);
     assert!(o.stdout.contains("No environment yet"), "{}", o.stdout);
-    let o = run(&fake, &["-p", "run the tests in acme-service"]);
+    let o = run(&fake, &["-p", "run the tests in opencomputer-environment-demo"]);
     assert!(o.stdout.contains("could not run the tests"), "{}", o.stdout);
     // Without a terminal it does not apply anything unasked.
     assert_eq!(run(&fake, &["env", "setup"]).code, 2);
     let o = run(&fake, &["env", "setup", "--yes"]);
     assert_eq!(o.code, 0, "{}", o.stderr);
-    assert!(o.stdout.contains("42 passed in the clean container") && o.stdout.contains("Ready."), "{}", o.stdout);
-    let o = run(&fake, &["-p", "run the tests in acme-service"]);
-    assert_eq!(o.stdout.trim(), "All 42 tests in acme-service pass.");
+    assert!(o.stdout.contains("7 passed in the clean container") && o.stdout.contains("Ready."), "{}", o.stdout);
+    let o = run(&fake, &["-p", "run the tests in opencomputer-environment-demo"]);
+    assert_eq!(o.stdout.trim(), "All 7 tests pass.");
     let first = run(&fake, &["env", "--json"]).json()["environment"]["revision"]["image"]["id"].clone();
     // Nothing to go back to yet.
     assert_ne!(run(&fake, &["env", "rollback"]).code, 0);

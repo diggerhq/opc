@@ -54,8 +54,9 @@ fn setup_json(s: &Setup, after: usize) -> Value {
     json!({"id": s.id, "status": s.status, "lines": lines, "next": s.lines.len(), "proposal": s.proposal})
 }
 
-const INSTALL: &str = "apt-get update\napt-get install -y postgresql-16\ncorepack enable pnpm\ncd acme-service && pnpm install --frozen-lockfile";
-const START: &str = "service postgresql start\ncreatedb acme_test 2>/dev/null || true";
+const REPO: &str = "diggerhq/opencomputer-environment-demo";
+const DIR: &str = "opencomputer-environment-demo";
+const START: &str = "service postgresql start\nsudo -u postgres psql -qc \"ALTER USER postgres PASSWORD 'postgres'\"\nsudo -u postgres createdb dispatch_test 2>/dev/null || true";
 
 pub async fn route(sh: &Arc<Shared>, method: &str, segs: &[&str], q: &Map<String, Value>, body: &Value, actor: &Value) -> ApiResult<(u16, Value)> {
     match (method, segs) {
@@ -163,23 +164,25 @@ async fn run_setup(sh: Arc<Shared>, id: String, message: Option<String>) {
     let base = sh.read(|w| w.env.current().cloned());
     let (summary, install, start, changes, tests) = match &base {
         None => {
-            s.line("step", "Reading diggerhq/acme-service", 6).await;
-            s.line("out", "package.json         node 22, pnpm, test: vitest run", 3).await;
-            s.line("out", "docker-compose.yml   postgres:16", 3).await;
+            s.line("step", &format!("Reading {REPO}"), 6).await;
+            s.line("out", "package.json         node 22, npm, test: node --test", 3).await;
+            s.line("out", "docker-compose.yml   postgis/postgis:16-3.4", 3).await;
             s.line("out", ".env.example         DATABASE_URL", 5).await;
             s.line("step", "Installing what it needs", 4).await;
             s.line("cmd", "apt-get update && apt-get install -y postgresql-16", 14).await;
-            s.line("out", "Setting up postgresql-16 (16.6-1.pgdg24.04+1) ...", 4).await;
-            s.line("cmd", "corepack enable pnpm && pnpm install --frozen-lockfile", 12).await;
-            s.line("out", "Done in 9.3s (412 packages)", 4).await;
+            s.line("out", "Setting up postgresql-16 (16.10-0ubuntu0.24.04.1) ...", 4).await;
+            s.line("cmd", "npm ci", 10).await;
+            s.line("out", "added 14 packages in 2s", 4).await;
+            s.line("cmd", "service postgresql start && createdb dispatch_test", 8).await;
             s.line("step", "Running the tests", 4).await;
-            s.line("cmd", "pnpm test", 10).await;
-            s.line("err", "14 failed, 28 passed: connect ECONNREFUSED 127.0.0.1:5432", 8).await;
-            s.line("step", "Postgres is installed but not running: starting it belongs in the start script", 8).await;
-            s.line("cmd", "service postgresql start && createdb acme_test", 8).await;
-            s.line("cmd", "pnpm test", 12).await;
-            s.line("ok", "42 passed (6.1s)", 6).await;
-            ("Postgres 16 and Node dependencies for acme-service".to_string(), INSTALL.to_string(), START.to_string(), Value::Null, 42)
+            s.line("cmd", "npm test", 10).await;
+            s.line("err", "7 failed: extension \"postgis\" is not available", 8).await;
+            s.line("step", "The schema needs PostGIS, which is a package of its own", 8).await;
+            s.line("cmd", "apt-get install -y postgresql-16-postgis-3", 12).await;
+            s.line("cmd", "npm test", 10).await;
+            s.line("ok", "7 passed (0.4s)", 6).await;
+            let install = format!("apt-get update\napt-get install -y postgresql-16 postgresql-16-postgis-3\ncd {DIR} && npm ci");
+            ("Postgres 16 with PostGIS, and the Node dependencies".to_string(), install, START.to_string(), Value::Null, 7)
         }
         Some(rev) => {
             let what = message.clone().unwrap_or_else(|| "add redis".into());
@@ -189,12 +192,12 @@ async fn run_setup(sh: Arc<Shared>, id: String, message: Option<String>) {
             s.line("out", "Setting up redis-server (5:7.0.15-1build2) ...", 4).await;
             s.line("cmd", "service redis-server start && redis-cli ping", 6).await;
             s.line("out", "PONG", 4).await;
-            s.line("cmd", "pnpm test", 12).await;
-            s.line("ok", "42 passed (6.0s)", 6).await;
+            s.line("cmd", "npm test", 10).await;
+            s.line("ok", "7 passed (0.4s)", 6).await;
             let install = format!("{}\napt-get install -y redis-server", rev["install"].as_str().unwrap_or(""));
             let start = format!("{}\nservice redis-server start", rev["start"].as_str().unwrap_or(""));
             let changes = json!(["install  + apt-get install -y redis-server", "start    + service redis-server start"]);
-            ("Add Redis".to_string(), install, start, changes, 42)
+            ("Add Redis".to_string(), install, start, changes, 7)
         }
     };
     // The check that counts: the scripts alone, from the base image, without secrets.
@@ -202,13 +205,13 @@ async fn run_setup(sh: Arc<Shared>, id: String, message: Option<String>) {
     s.line("step", "Checking the scripts from scratch: a clean container, no secrets", 6).await;
     s.line("out", "install   1m 38s", 10).await;
     s.line("out", "start     2s", 4).await;
-    s.line("out", "pnpm test", 8).await;
+    s.line("out", "npm test  0.4s", 8).await;
     s.line("ok", &format!("{tests} passed in the clean container"), 4).await;
     let proposal = json!({
         "summary": summary, "install": install, "start": start, "changes": changes,
-        "repos": [{"name": "diggerhq/acme-service", "default": true}],
+        "repos": [{"name": REPO, "default": true}],
         "secrets": ["DATABASE_URL"],
-        "check": {"command": "pnpm test", "passed": tests, "durationMs": 112_000},
+        "check": {"command": "npm test", "passed": tests, "durationMs": 112_000},
     });
     sh.with(|w| {
         if let Some(x) = w.env.setup_mut(&id).filter(|x| x.status != "rejected") {
