@@ -51,7 +51,9 @@ pub fn now_ms() -> u128 {
 }
 
 pub fn me() -> Value {
-    json!({"id": "usr_me7f3a9k2m4q", "name": "Test User", "email": "test@example.com"})
+    // `OPC_FAKE_NAME`: the person's name when the fake runs standalone.
+    let name = std::env::var("OPC_FAKE_NAME").unwrap_or_else(|_| "Test User".into());
+    json!({"id": "usr_me7f3a9k2m4q", "name": name, "email": "test@example.com"})
 }
 
 pub fn other_person() -> Value {
@@ -266,6 +268,8 @@ pub struct World {
     pub jobs: Vec<Job>,
     pub bus: broadcast::Sender<Out>,
     pub interrupt_spares_background: bool,
+    /// The Computer's environment (see `env.rs`).
+    pub env: super::env::EnvState,
 }
 
 pub struct Idem {

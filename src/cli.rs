@@ -241,6 +241,8 @@ pub enum Command {
     Ask(AskCommand),
     /// List, stop and read a session's subagents
     Subagents(SubagentsArgs),
+    /// What every new session starts with: show it, set it up, roll it back
+    Env(EnvArgs),
     /// Set a session's title
     Rename(RenameArgs),
     /// Archive a session
@@ -289,6 +291,7 @@ impl Command {
             Command::Interrupt(_) => "interrupt",
             Command::Ask(_) => "ask",
             Command::Subagents(_) => "subagents",
+            Command::Env(_) => "env",
             Command::Rename(_) => "rename",
             Command::Archive(_) => "archive",
             Command::Unarchive(_) => "unarchive",
@@ -321,6 +324,7 @@ impl Command {
             Command::Interrupt(a) => a.json,
             Command::Ask(a) => a.json(),
             Command::Subagents(a) => a.json(),
+            Command::Env(a) => a.json(),
             Command::Push(a) => a.json,
             Command::Pull(a) => a.json,
             Command::Whoami(a) | Command::Doctor(a) => a.json,
@@ -592,6 +596,60 @@ pub struct AskAnswerArgs {
     pub json: bool,
 }
 
+/// `opc env [show|setup|history|rollback]`; without a subcommand, `show`.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct EnvArgs {
+    #[command(subcommand)]
+    pub command: Option<EnvCommand>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+impl EnvArgs {
+    pub fn json(&self) -> bool {
+        match &self.command {
+            None => self.json,
+            Some(EnvCommand::Show(a)) | Some(EnvCommand::History(a)) => a.json,
+            Some(EnvCommand::Setup(a)) => a.json,
+            Some(EnvCommand::Rollback(a)) => a.json,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EnvCommand {
+    /// The environment new sessions start from
+    Show(JsonOnly),
+    /// Have an agent set the environment up, or change it, and approve the result
+    Setup(EnvSetupArgs),
+    /// Every change to the environment, newest first
+    History(JsonOnly),
+    /// Go back to an earlier setup
+    Rollback(EnvRollbackArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct EnvSetupArgs {
+    /// What to change, in words (without it: set up what the repositories need)
+    #[arg(value_name = "MESSAGE")]
+    pub message: Vec<String>,
+    /// Approve the result without asking
+    #[arg(short, long)]
+    pub yes: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct EnvRollbackArgs {
+    /// The revision to go back to (rev_…); without it, the setup before this one
+    #[arg(value_name = "REVISION")]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
 /// `opc subagents [ls|stop|result]`; without a subcommand, `ls`.
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -803,7 +861,7 @@ pub enum CompletionShell {
 
 /// Every command name, including aliases.
 pub const COMMANDS: &[&str] = &[
-    "new", "a", "attach", "ls", "list", "log", "send", "wait", "watch", "interrupt", "ask", "subagents", "rename", "archive", "unarchive",
+    "new", "a", "attach", "ls", "list", "log", "send", "wait", "watch", "interrupt", "ask", "subagents", "env", "rename", "archive", "unarchive",
     "open", "diff", "push", "pull", "shell", "login", "logout", "whoami", "doctor", "schema", "help", "completion",
 ];
 

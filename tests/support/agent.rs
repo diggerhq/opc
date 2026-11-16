@@ -191,6 +191,30 @@ pub async fn run_turn(sh: Arc<Shared>, sid: String, tid: String) {
                 r.reply(&format!("done after {ms} ms")).await;
             }
         }
+        // "run the tests …": what the Computer's environment decides.
+        "run" => {
+            let ready = r.sh.read(|w| w.env.has("postgis"));
+            let c = call_id();
+            if !r.tool_started(None, "Bash", &c, None, "npm ci && npm test", json!({"command": "cd opencomputer-environment-demo && npm ci && npm test", "description": "npm test"})) || !r.pause(r.step * 12).await {
+                return;
+            }
+            if ready {
+                if r.tool_ended(&c, true, json!("tests 7\npass 7\nfail 0\n"), "") {
+                    r.reply("All 7 tests pass.").await;
+                }
+                return;
+            }
+            if !r.tool_ended(&c, true, json!("tests 7\npass 0\nfail 7\nError: connect ECONNREFUSED 127.0.0.1:5432\n"), "") || !r.pause(r.step * 4).await {
+                return;
+            }
+            let c = call_id();
+            if !r.tool_started(None, "Bash", &c, None, "sudo apt-get install -y postgresql-16", json!({"command": "sudo apt-get install -y postgresql-16"})) || !r.pause(r.step * 8).await {
+                return;
+            }
+            if r.tool_ended(&c, true, json!("sudo: a password is required\n"), "") {
+                r.reply("I could not run the tests. All 7 fail with `connect ECONNREFUSED 127.0.0.1:5432`: they need Postgres 16 with PostGIS, and it is not installed on this computer. I cannot install it, because there is no root here. Set up the environment once with `opc env setup`, and every session will start with it.").await;
+            }
+        }
         "tool" => {
             let c = call_id();
             if !r.tool_started(None, "Bash", &c, None, "echo hi", json!({"command": "echo hi", "description": "echo hi"})) || !r.tick().await {

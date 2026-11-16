@@ -912,3 +912,32 @@ fn help_says_how_to_turn_telemetry_off() {
     assert_eq!(o.code, 0);
     assert!(o.stdout.contains("never sends what you type"), "{}", o.stdout);
 }
+
+// ---- The environment (against the fake's proposed routes) ---------------
+
+#[test]
+fn env_setup_changes_what_sessions_start_with() {
+    let fake = Fake::start();
+    let o = run(&fake, &["env"]);
+    assert!(o.stdout.contains("No environment yet"), "{}", o.stdout);
+    let o = run(&fake, &["-p", "run the tests in opencomputer-environment-demo"]);
+    assert!(o.stdout.contains("could not run the tests"), "{}", o.stdout);
+    // Without a terminal it does not apply anything unasked.
+    assert_eq!(run(&fake, &["env", "setup"]).code, 2);
+    let o = run(&fake, &["env", "setup", "--yes"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.stdout.contains("7 passed in the clean container") && o.stdout.contains("Ready."), "{}", o.stdout);
+    let o = run(&fake, &["-p", "run the tests in opencomputer-environment-demo"]);
+    assert_eq!(o.stdout.trim(), "All 7 tests pass.");
+    let first = run(&fake, &["env", "--json"]).json()["environment"]["revision"]["image"]["id"].clone();
+    // Nothing to go back to yet.
+    assert_ne!(run(&fake, &["env", "rollback"]).code, 0);
+    let o = run(&fake, &["env", "setup", "--yes", "also", "add", "redis"]);
+    assert!(o.stdout.contains("+ apt-get install -y redis-server"), "{}", o.stdout);
+    let o = run(&fake, &["env", "rollback"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let env = run(&fake, &["env", "--json"]).json();
+    assert_eq!(env["environment"]["revision"]["image"]["id"], first);
+    assert_eq!(run(&fake, &["env", "history", "--json"]).json()["revisions"].as_array().unwrap().len(), 3);
+    fake.assert_no_panics();
+}

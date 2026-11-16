@@ -6,6 +6,7 @@ pub mod attach;
 pub mod auth;
 pub mod config;
 pub mod doctor;
+pub mod env;
 pub mod follow;
 pub mod help;
 pub mod log;
@@ -263,6 +264,7 @@ pub async fn dispatch(cli: Cli, ctx: &mut Ctx) -> Result<i32> {
         Command::Interrupt(a) => manage::interrupt(ctx, a).await,
         Command::Ask(a) => ask::run(ctx, a).await,
         Command::Subagents(a) => subagents::run(ctx, a).await,
+        Command::Env(a) => env::run(ctx, a).await,
         Command::Rename(a) => manage::rename(ctx, a).await,
         Command::Archive(a) => manage::archive(ctx, a, true).await,
         Command::Unarchive(a) => manage::archive(ctx, a, false).await,
