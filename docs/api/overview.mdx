@@ -14,6 +14,8 @@ It has two parts that share one data model:
 | Shape | JSON requests and responses | JSON-RPC 2.0 messages |
 | Auth | An API key on every request | The API key on the upgrade request, or a short-lived [ticket](/api/http/tickets) from a browser |
 
+HTTP paths in the API reference are relative to the HTTP base above. For example, `POST /sessions` means `POST https://app.opencomputer.dev/api/managed-agents/computer/sessions`.
+
 Every action is available over HTTP. The WebSocket adds live events, text deltas and terminals. A program that only needs to start work and collect the result never has to open a WebSocket: see [Quickstart](/api/quickstart).
 
 ## Where it fits
