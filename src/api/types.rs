@@ -35,8 +35,8 @@ pub struct Settings {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub mode: Option<String>,
-    /// `fast` or `standard`; absent or null (older servers) means fast.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// `fast` or `standard`; null (older servers) means fast. Always written:
+    /// the schema requires it.
     pub speed: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -278,8 +278,40 @@ pub struct Session {
     pub last_active_at: Option<String>,
     pub synced_at: Option<String>,
     pub urls: Urls,
+    /// Who may see and drive it; absent from servers that predate access settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access: Option<Access>,
+    /// Whether the caller may change `access`; absent from older servers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_manage_access: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// `Session.access`: `owner` (only the owner), `org` (every member of the
+/// organization) or `people` (the owner and `people`, `usr_…` ids).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Access {
+    pub mode: String,
+    pub people: Vec<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl Access {
+    /// One word or a short phrase for people: `owner only`, `organization`, `3 people`.
+    pub fn label(&self) -> String {
+        match self.mode.as_str() {
+            "owner" => "owner only".into(),
+            "org" => "organization".into(),
+            "people" => match self.people.len() {
+                1 => "1 person".into(),
+                n => format!("{n} people"),
+            },
+            other => other.into(),
+        }
+    }
 }
 
 impl Session {
@@ -431,10 +463,10 @@ mod tests {
     }
 
     #[test]
-    fn speed_is_optional_in_settings() {
+    fn speed_may_be_absent_and_is_written_as_null() {
         let s: Settings = serde_json::from_value(json!({"model": "m", "effort": "high", "mode": "default"})).unwrap();
         assert_eq!(s.speed, None);
-        assert!(serde_json::to_value(&s).unwrap().get("speed").is_none());
+        assert_eq!(serde_json::to_value(&s).unwrap()["speed"], Value::Null);
         let s: Settings = serde_json::from_value(json!({"model": "m", "effort": null, "mode": "default", "speed": "standard"})).unwrap();
         assert_eq!(s.speed.as_deref(), Some("standard"));
     }
